@@ -1,0 +1,8 @@
+name = "mobiletripplanner-v3"
+compatibility_date = "2026-10-01"
+
+# Serves static files directly from your ./pages directory
+# pages/index.html     -> /
+# pages/css/app.css    -> /css/app.css
+# pages/js/map-page.js -> /js/map-page.js
+assets = { directory = "./pages", html_handling = "auto-trailing-slash" }
