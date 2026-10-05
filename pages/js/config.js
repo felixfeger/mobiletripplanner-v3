@@ -6,3 +6,7 @@ export const MODES = [
   { id: 'fewest_transfers', label: 'Fewest transfers', short: 'Transfers' },
   { id: 'fewest_walking', label: 'Least walking', short: 'Walking' }
 ];
+
+// Live arrival times appear only inside the trip guide (planner.html).
+// Set to true to also show them on the map page (nearby list + station slider).
+export const SHOW_LIVE_ON_MAP = false;
