@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>City Metro Transit</title>
+  <link rel="icon" href="img/logo.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="page-map">
+  <div class="canvas-wrap" id="mapWrap"><canvas id="mapCanvas" aria-label="Transit map"></canvas></div>
+
+  <a class="search-pill" href="planner.html" aria-label="Plan a trip">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35" stroke-linecap="round"/></svg>
+    <span>Where to?</span>
+  </a>
+
+  <div class="map-ctrls" aria-label="Map controls">
+    <button id="zoomIn" aria-label="Zoom in">+</button>
+    <button id="zoomOut" aria-label="Zoom out">−</button>
+    <button id="zoomFit" aria-label="Show whole network">⤢</button>
+  </div>
+
+  <section class="sheet" id="sheet" data-state="peek" aria-label="Network details">
+    <button class="sheet-handle" id="sheetHandle" aria-label="Expand or collapse panel"><span></span></button>
+    <div class="sheet-scroll" id="sheetBody"><div class="empty"><div class="spinner"></div>Loading network…</div></div>
+  </section>
+
+  <script type="module" src="js/map-page.js"></script>
+</body>
+</html>
