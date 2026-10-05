@@ -55,3 +55,66 @@ export function departures(stationId, lineId, net) {
   if (line.first.id !== line.last.id) out.push(make(line.first, v => v.headsign === line.first.name));
   return out.filter(d => d.destId !== stationId);
 }
+
+// ── helpers added for the nearby list, station slider and planner ──────────
+
+export function walkMinutes(distPx, net) {
+  return Math.max(1, Math.round((distPx / net.settings.px_per_mile / net.settings.walk_mph) * 60));
+}
+
+// Every upcoming arrival at one station, grouped by line (in line order).
+export function stationBoard(stationId, net) {
+  const st = net.stationsById[stationId];
+  if (!st) return [];
+  const order = new Map(net.lines.map((l, i) => [l.id, i]));
+  return st.lineIds.filter(id => net.linesById[id]).sort((a, b) => order.get(a) - order.get(b))
+    .map(id => ({ line: net.linesById[id], dirs: departures(stationId, id, net) }))
+    .filter(b => b.dirs.length);
+}
+
+// "Options near me": the nearest stations to a spot, one row per line + direction.
+export function nearbyServices(pin, net, maxStations = 6) {
+  const near = net.stations.map(s => ({ s, d: Math.hypot(s.x - pin.x, s.y - pin.y) }))
+    .sort((a, b) => a.d - b.d).slice(0, maxStations)
+    .filter((x, i) => i < 2 || walkMinutes(x.d, net) <= 20);
+  const best = new Map();
+  for (const { s, d } of near) {
+    for (const lineId of s.lineIds) {
+      const line = net.linesById[lineId];
+      if (!line) continue;
+      for (const dir of departures(s.id, lineId, net)) {
+        const key = `${lineId}|${dir.destId}`, cur = best.get(key);
+        if (!cur || d < cur.d) best.set(key, { line, station: s, d, dir, etas: dir.etas, walkMin: walkMinutes(d, net) });
+      }
+    }
+  }
+  return [...best.values()].sort((a, b) => (a.etas[0] ?? 1e9) - (b.etas[0] ?? 1e9) || a.d - b.d);
+}
+
+export function nearestStation(p, net) {
+  let best = null, bd = Infinity;
+  for (const s of net.stations) { const d = Math.hypot(s.x - p.x, s.y - p.y); if (d < bd) { best = s; bd = d; } }
+  return best ? { station: best, dist: bd } : null;
+}
+
+// Name of the closest named street, if the spot is actually on/near one.
+export function nearestStreet(p, net, maxPx = 45) {
+  let name = null, bd = Infinity;
+  for (const st of net.streets) {
+    if (!st.name || st.pts.length < 2) continue;
+    for (let i = 1; i < st.pts.length; i++) {
+      const [ax, ay] = st.pts[i - 1], [bx, by] = st.pts[i];
+      const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / len2));
+      const d = Math.hypot(p.x - (ax + t * dx), p.y - (ay + t * dy));
+      if (d < bd) { bd = d; name = st.name; }
+    }
+  }
+  return bd <= maxPx ? name : null;
+}
+
+// Stations of a line in running order (used by the station slider).
+export function lineStops(lineId, net) {
+  const l = orderedLine(lineId, net);
+  return l ? l.ids.map(id => net.stationsById[id]).filter(Boolean) : [];
+}
