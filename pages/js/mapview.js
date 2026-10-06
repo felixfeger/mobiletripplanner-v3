@@ -7,8 +7,10 @@ const FONT = '"Helvetica Neue", Helvetica, Arial, sans-serif';
 const STATION_R = { hub: 9, station: 7, stop: 4.5 };
 
 export class MapView {
-  constructor({ wrap, canvas, net, onStation, onVehicle, onEmpty, insets }) {
+  constructor({ wrap, canvas, net, onStation, onVehicle, onEmpty, insets, showVehicles = true, showWalkLinks = true }) {
     this.net = net;
+    this.showVehicles = showVehicles;      // individual live vehicles on the map (off on index.html)
+    this.showWalkLinks = showWalkLinks;    // dashed walking links between nearby stations (off on index.html)
     this.route = null; this.activeLeg = null; this.pin = null;
     this.selectedId = null; this.focusLine = null; this._focus = null; this.tracked = null; this._icons = {};
     this.onStation = onStation; this.onVehicle = onVehicle; this.onEmpty = onEmpty;
@@ -41,7 +43,7 @@ export class MapView {
   tap(world, screen) {
     const { map, net } = this;
     const near = (x, y, px) => Math.hypot((x - world.x) * map.scale, (y - world.y) * map.scale) <= px;
-    for (const v of net.vehicles || []) if (near(v.x, v.y, 18)) return this.onVehicle && this.onVehicle(v);
+    if (this.showVehicles) for (const v of net.vehicles || []) if (near(v.x, v.y, 18)) return this.onVehicle && this.onVehicle(v);
     let best = null, bd = Infinity;
     for (const s of net.stations) {
       const d = Math.hypot((s.x - world.x) * map.scale, (s.y - world.y) * map.scale);
@@ -61,7 +63,7 @@ export class MapView {
       ctx.strokeStyle = safeColor(st.color, '#D5D9E0'); ctx.lineWidth = Math.max(5, st.width || 6);
       path(ctx, st.pts); ctx.stroke();
     }
-    if (m.scale > 0.5) {
+    if (m.scale > 0.5 && this.showWalkLinks) {
       ctx.setLineDash([4 * k, 5 * k]); ctx.lineWidth = 2 * k;
       ctx.strokeStyle = route ? 'rgba(75,85,99,.2)' : 'rgba(75,85,99,.55)';
       for (const w of net.walk_links) {
@@ -101,16 +103,10 @@ export class MapView {
     }
     ctx.globalAlpha = 1;
 
-    if (!route) {
+    if (!route && this.showVehicles) {
       for (const v of net.vehicles || []) {
         if (focusLine && focusLine !== v.line_id) continue;
-        const line = net.linesById[v.line_id], r = 9 * grow;
-        ctx.beginPath(); ctx.arc(v.x, v.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = safeColor(v.color || (line && line.color)); ctx.fill();
-        ctx.lineWidth = 2.5 * k; ctx.strokeStyle = '#fff'; ctx.stroke();
-        ctx.fillStyle = safeColor(v.text_color || (line && line.text_color), '#fff');
-        ctx.font = `700 ${10 * grow}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(String((line && line.id) || v.line_id).slice(0, 3), v.x, v.y + 0.5 * k);
+        this.drawVehicle(ctx, v, k);
       }
     }
     if (this.pin) {
@@ -128,6 +124,22 @@ export class MapView {
       this._icons[type] = img;
     }
     return this._icons[type];
+  }
+
+  // One live vehicle: your white bus / train icon on a black chip, ringed in the line colour.
+  drawVehicle(ctx, v, k) {
+    const line = this.net.linesById[v.line_id];
+    const color = safeColor(v.color || (line && line.color), '#111827');
+    const type = (line && line.type) || v.line_type || 'bus';
+    ctx.beginPath(); ctx.arc(v.x, v.y, 14 * k, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.lineWidth = 3.5 * k; ctx.strokeStyle = color; ctx.stroke();
+    ctx.beginPath(); ctx.arc(v.x, v.y, 10.5 * k, 0, Math.PI * 2); ctx.fillStyle = '#000'; ctx.fill();
+    const img = this.icon(type), w = 14 * k;
+    if (img.complete && img.naturalWidth && !img._bad) ctx.drawImage(img, v.x - w / 2, v.y - w / 2, w, w);
+    else {
+      ctx.fillStyle = '#fff'; ctx.font = `700 ${8 * k}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String((line && line.id) || v.line_id).slice(0, 3), v.x, v.y + 0.5 * k);
+    }
   }
 
   // The vehicle the guide is following: black chip with your white bus/train icon, ringed in the line colour.
