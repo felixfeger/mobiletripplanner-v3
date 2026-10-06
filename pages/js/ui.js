@@ -45,10 +45,22 @@ export function liveIcon(type) {
   return `<span class="live-ic" aria-hidden="true"><img src="${src}" alt="" onerror="window.__liveFallback(this)"></span>`;
 }
 
+window.__badgeFallback = img => {
+  const s = document.createElement('span');
+  s.className = `badge ${img.dataset.size || ''}${img.dataset.round === '1' ? ' round' : ''}`;
+  s.style.background = img.dataset.bg; s.style.color = img.dataset.fg; s.textContent = img.dataset.id;
+  img.replaceWith(s);
+};
+// A line with an image shows that image exactly as uploaded — no box, border, rounding or cropping.
+// Without an image (or if it fails to load) it falls back to the coloured text badge.
 export function lineBadge(line, size = '') {
   if (!line) return '';
-  const img = line.image_url ? `<img src="${esc(line.image_url)}" alt="" onerror="this.remove()">` : '';
-  return `<span class="badge ${size}${line.type === 'rail' ? ' round' : ''}" style="background:${safeColor(line.color)};color:${safeColor(line.text_color, '#fff')}">${esc(line.id)}${img}</span>`;
+  const round = line.type === 'rail';
+  const bg = safeColor(line.color), fg = safeColor(line.text_color, '#fff');
+  if (line.image_url) {
+    return `<img class="line-img ${size}" src="${esc(line.image_url)}" alt="${esc(line.id)}" data-id="${esc(line.id)}" data-bg="${bg}" data-fg="${fg}" data-size="${esc(size)}" data-round="${round ? 1 : 0}" onerror="window.__badgeFallback(this)">`;
+  }
+  return `<span class="badge ${size}${round ? ' round' : ''}" style="background:${bg};color:${fg}">${esc(line.id)}</span>`;
 }
 
 let toastTimer;
@@ -106,20 +118,49 @@ export function Tabs({ items, active, onChange, label = 'Tabs', variant = 'segme
   return { el, select, get value() { return current; }, setItems(next, keep) { items = next; if (!keep || !items.some(i => i.id === current)) current = items[0] && items[0].id; paint(); } };
 }
 
-// ── Page chrome: black navbar, hamburger menu on mobile, account dialog ──
+// ── Pager: a tab bar + panes. Desktop shows the active pane; on mobile the panes sit side by side and swipe. ──
+export function Pager({ items, active, onChange, label = 'Direction' }) {
+  let current = active ?? items[0].id;
+  const el = document.createElement('div');
+  el.className = 'pager-wrap';
+  const tabs = Tabs({ items: items.map(i => ({ id: i.id, label: i.label, sub: i.sub })), active: current, label, onChange: id => go(id) });
+  const pager = document.createElement('div');
+  pager.className = 'pager';
+  const mark = () => pager.querySelectorAll('.pane').forEach(p => p.classList.toggle('is-active', p.dataset.id === current));
+  const build = () => { pager.innerHTML = items.map(i => `<section class="pane" data-id="${esc(i.id)}" aria-label="${esc(i.label)}">${i.html}</section>`).join(''); mark(); };
+  function go(id, { scroll = true } = {}) {
+    current = id; mark();
+    if (scroll && pager.scrollWidth > pager.clientWidth + 1) pager.scrollTo({ left: items.findIndex(x => x.id === id) * pager.clientWidth, behavior: 'smooth' });
+    onChange && onChange(id);
+  }
+  let t;
+  pager.addEventListener('scroll', () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const i = Math.round(pager.scrollLeft / Math.max(1, pager.clientWidth));
+      if (items[i] && items[i].id !== current) { current = items[i].id; tabs.select(current, { silent: true }); mark(); onChange && onChange(current); }
+    }, 70);
+  });
+  build();
+  el.append(tabs.el, pager);
+  return {
+    el, pager, tabs, get value() { return current; },
+    // re-render pane content in place (live refresh) without losing the swipe position
+    update(next, nextTabs) { items = next; const left = pager.scrollLeft; build(); pager.scrollLeft = left; if (nextTabs) tabs.setItems(items.map(i => ({ id: i.id, label: i.label, sub: i.sub })), true), tabs.select(current, { silent: true }); }
+  };
+}
+
+// ── Page chrome (navbar as it was before: white bar, logo button, blue "Metro", hamburger on mobile) ──
 export function mountChrome(active) {
-  const link = (href, text, id, cls = '') => `<a href="${href}" class="${cls}${active === id ? ' is-current' : ''}"${active === id ? ' aria-current="page"' : ''}>${text}</a>`;
+  const a = (href, text, id) => `<a href="${href}"${active === id ? ' class="active" aria-current="page"' : ''}>${text}</a>`;
   document.body.insertAdjacentHTML('afterbegin', `
-    <header class="navbar">
-      <button class="nav-logo" id="accountBtn" aria-label="Account"><img src="img/logo.png" alt=""></button>
+    <nav class="navbar">
+      <button class="nav-logo-btn" id="accountBtn" aria-label="Account"><img src="img/logo.png" alt="City Metro"></button>
       <a href="index.html" class="nav-title">City <span>Metro</span></a>
-      <nav class="nav-links" aria-label="Main">${link('index.html', 'Map', 'map')}${link('planner.html', 'Plan trip', 'plan')}</nav>
-      <button class="hamburger" id="menuBtn" aria-label="Menu" aria-expanded="false" aria-controls="drawer"><span></span><span></span><span></span></button>
-    </header>
-    <nav class="drawer" id="drawer" aria-label="Menu" hidden>
-      ${link('index.html', 'Map', 'map')}${link('planner.html', 'Plan a trip', 'plan')}
-      <button type="button" id="drawerAccount">Account &amp; saved journeys</button>
+      <nav class="nav-links" aria-label="Main">${a('index.html', 'Map', 'map')}${a('planner.html', 'Plan Trip', 'plan')}</nav>
+      <button class="hamburger" id="menuBtn" aria-label="Menu" aria-expanded="false" aria-controls="navDrawer"><span></span><span></span><span></span></button>
     </nav>
+    <div class="nav-drawer" id="navDrawer">${a('index.html', 'Map', 'map')}${a('planner.html', 'Plan Trip', 'plan')}</div>
     <div class="overlay" id="accountOverlay" hidden>
       <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
         <button class="dialog-close" id="accountClose" aria-label="Close">${ICON.close}</button>
@@ -127,13 +168,11 @@ export function mountChrome(active) {
         <div id="accountBody"></div>
       </div>
     </div>`);
-  const overlay = $('#accountOverlay'), drawer = $('#drawer'), menu = $('#menuBtn');
-  const closeMenu = () => { drawer.hidden = true; menu.setAttribute('aria-expanded', 'false'); menu.classList.remove('is-open'); };
-  const openAccount = () => { closeMenu(); renderAccount(); overlay.hidden = false; };
-  menu.onclick = () => { const open = drawer.hidden; drawer.hidden = !open; menu.setAttribute('aria-expanded', String(open)); menu.classList.toggle('is-open', open); };
+  const overlay = $('#accountOverlay'), drawer = $('#navDrawer'), menu = $('#menuBtn');
+  const closeMenu = () => { drawer.classList.remove('open'); menu.setAttribute('aria-expanded', 'false'); };
+  menu.onclick = () => { const open = drawer.classList.toggle('open'); menu.setAttribute('aria-expanded', String(open)); };
   drawer.addEventListener('click', e => { if (e.target.closest('a')) closeMenu(); });
-  $('#accountBtn').onclick = openAccount;
-  $('#drawerAccount').onclick = openAccount;
+  $('#accountBtn').onclick = () => { closeMenu(); renderAccount(); overlay.hidden = false; };
   $('#accountClose').onclick = () => { overlay.hidden = true; };
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.hidden = true; });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { overlay.hidden = true; closeMenu(); } });
