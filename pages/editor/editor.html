@@ -1118,20 +1118,34 @@ function refreshStationList() {
 // When a line is chosen for a vehicle, populate:
 // - headsign select with the TWO terminal stations (one per direction of travel)
 // - next-station select with ALL stations on that line
-async function onVLineChange(lineId, restoreHeadsign) {
+let vLineToken = 0;
+// Keep a saved value selected even if it is not (or no longer) one of the options,
+// so opening a vehicle never shows a blank dropdown that the next Save would write back as empty.
+function setSelectValue(sel, value, labelFor) {
+  if (value == null || value === '') return;
+  const v = String(value);
+  if (![...sel.options].some(o => o.value === v)) {
+    const o = document.createElement('option'); o.value = v; o.textContent = labelFor(v); sel.appendChild(o);
+  }
+  sel.value = v;
+}
+async function onVLineChange(lineId, restoreHeadsign, restoreNext) {
+  const token = ++vLineToken;
   const headsignSel = document.getElementById('vHeadsign');
   const nextSel = document.getElementById('vNextStation');
   headsignSel.innerHTML = '<option value="">Select direction…</option>';
   nextSel.innerHTML = '<option value="">Next immediate stop…</option>';
+  // show the saved values immediately, while the line's stations are still loading
+  setSelectValue(headsignSel, restoreHeadsign, v => '→ ' + v);
+  setSelectValue(nextSel, restoreNext, v => ((allStations.find(s => String(s.id) === v) || {}).name) || ('Station ' + v));
   if (!lineId) return;
   try {
     const data = await apiFetch(`/api/lines/${encodeURIComponent(lineId)}`);
-    // Stations ordered for this line
-    const ordered = data.stations.sort((a,b) => a.stop_order - b.stop_order);
-    // Populate next-stop dropdown (all stations)
+    if (token !== vLineToken) return; // a newer selection replaced this one
+    const seen = new Set();
+    const ordered = data.stations.slice().sort((a,b) => a.stop_order - b.stop_order).filter(s => !seen.has(s.id) && seen.add(s.id));
     nextSel.innerHTML = '<option value="">Next immediate stop…</option>' +
       ordered.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
-    // Headsign = the two ends of the line (riders board toward one terminal or the other)
     if (ordered.length >= 2) {
       const first = ordered[0], last = ordered[ordered.length-1];
       headsignSel.innerHTML =
@@ -1139,7 +1153,8 @@ async function onVLineChange(lineId, restoreHeadsign) {
         `<option value="${escapeHtml(last.name)}">→ ${escapeHtml(last.name)}</option>` +
         `<option value="${escapeHtml(first.name)}">→ ${escapeHtml(first.name)}</option>`;
     }
-    if (restoreHeadsign) headsignSel.value = restoreHeadsign;
+    setSelectValue(headsignSel, restoreHeadsign, v => '→ ' + v);
+    setSelectValue(nextSel, restoreNext, v => ((allStations.find(s => String(s.id) === v) || {}).name) || ('Station ' + v));
   } catch {}
 }
 
@@ -1185,9 +1200,8 @@ function selectVehicleForEdit(v) {
   document.getElementById('vLabel').value=v.vehicle_label||'';
   document.getElementById('vSpeed').value=v.speed_kmh||0;
   document.getElementById('vStatus').value=v.status||'in_service';
-  document.getElementById('vNextStation').value=v.next_station_id||'';
-  // Populate headsign options for this line, then restore value
-  onVLineChange(v.line_id, v.headsign||'');
+  // Populate the line's options, then restore the saved headsign AND next stop
+  onVLineChange(v.line_id, v.headsign||'', v.next_station_id);
   document.getElementById('vX').value=v.x;
   document.getElementById('vY').value=v.y;
   engine.render();
