@@ -4,9 +4,10 @@
 //  • vehicles in service, service alerts and walking connections live here, not on the map page
 import { api } from './api.js';
 import { esc, lineBadge, safeColor, Pager, ICON, liveIcon, fmtMin, fmtMiles } from './ui.js';
-import { lineStops, departures, etaMinutes, terminals, dirKeyOf } from './arrivals.js';
+import { lineStops, departures, terminals } from './arrivals.js';
+import { vehicleRows } from './vehiclesheet.js';
 
-export function renderLineScreen(root, { net, lineId, stationId = null, onBack, onStation, onShowMap, backLabel = 'Back' }) {
+export function renderLineScreen(root, { net, lineId, stationId = null, onBack, onStation, onVehicle, onShowMap, backLabel = 'Back' }) {
   const line = net.linesById[lineId];
   if (!line) { root.innerHTML = '<p class="hint">Line not found.</p>'; return { refresh() {}, destroy() {} }; }
   const { first, last } = terminals(lineId, net);
@@ -40,12 +41,7 @@ export function renderLineScreen(root, { net, lineId, stationId = null, onBack, 
   }
 
   function extrasHtml() {
-    const vs = (net.vehicles || []).filter(v => v.line_id === lineId);
-    const live = vs.length ? vs.map(v => {
-      const m = v.next_station_id != null ? etaMinutes(v, v.next_station_id, net) : null;
-      const toward = v.headsign || (dirKeyOf(v, { first }) === 'inbound' ? first && first.name : last && last.name);
-      return `<div class="ls-veh">${liveIcon(line.type)}<div><strong>${esc(v.vehicle_label || 'Vehicle')}</strong><small>→ ${esc(toward || '')}${v.next_station_name ? ' · next stop ' + esc(v.next_station_name) : ''}</small></div>${m != null ? `<span class="ls-eta"><b>${m}</b> min</span>` : ''}</div>`;
-    }).join('') : '<p class="muted pad">No vehicles in service right now.</p>';
+    const live = vehicleRows(net, lineId, station ? station.id : null);
 
     const seen = new Set(), walks = [];
     for (const s of lineStops(lineId, net)) {
@@ -60,13 +56,14 @@ export function renderLineScreen(root, { net, lineId, stationId = null, onBack, 
         <span class="chips">${b.lineIds.map(id => lineBadge(net.linesById[id])).join('')}</span>
         <small>${fmtMin(w.seconds)} walk · ${fmtMiles(w.miles)}</small></div></div>`).join('') : '<p class="muted pad">No walking connections from this line.</p>';
 
-    return `<h3 class="eyebrow">Vehicles in service</h3><div class="ls-vehs">${live}</div>
+    return `<h3 class="eyebrow">Live vehicles on this line</h3><div class="ls-vehs">${live}</div>
       <h3 class="eyebrow">Walking connections</h3>${walkHtml}
       <h3 class="eyebrow">Service alerts</h3><div id="lsAlerts">${alertsHtml || '<p class="muted pad">No active alerts.</p>'}</div>`;
   }
 
   function bind() {
     root.querySelectorAll('[data-open]').forEach(b => b.onclick = () => onStation && onStation(net.stationsById[b.dataset.open]));
+    root.querySelectorAll('[data-vehicle]').forEach(b => b.onclick = () => { const v = (net.vehicles || []).find(x => String(x.id) === b.dataset.vehicle); if (v && onVehicle) onVehicle(v); });
   }
 
   root.innerHTML = `<div class="ls">
