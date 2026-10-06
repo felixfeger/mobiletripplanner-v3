@@ -126,7 +126,18 @@ export function Pager({ items, active, onChange, label = 'Direction' }) {
   const tabs = Tabs({ items: items.map(i => ({ id: i.id, label: i.label, sub: i.sub })), active: current, label, onChange: id => go(id) });
   const pager = document.createElement('div');
   pager.className = 'pager';
-  const mark = () => pager.querySelectorAll('.pane').forEach(p => p.classList.toggle('is-active', p.dataset.id === current));
+  // On mobile the panes sit side by side; size the strip to the pane you're looking at so a short pane
+  // (e.g. one line) doesn't leave a gap the height of a long one.
+  const ro = new ResizeObserver(() => fit());
+  function fit() {
+    const act = pager.querySelector('.pane.is-active');
+    pager.style.height = act && pager.scrollWidth > pager.clientWidth + 1 ? act.offsetHeight + 'px' : '';
+  }
+  const mark = () => {
+    pager.querySelectorAll('.pane').forEach(p => p.classList.toggle('is-active', p.dataset.id === current));
+    ro.disconnect(); const act = pager.querySelector('.pane.is-active'); if (act) ro.observe(act);
+    fit();
+  };
   const build = () => { pager.innerHTML = items.map(i => `<section class="pane" data-id="${esc(i.id)}" aria-label="${esc(i.label)}">${i.html}</section>`).join(''); mark(); };
   function go(id, { scroll = true } = {}) {
     current = id; mark();
