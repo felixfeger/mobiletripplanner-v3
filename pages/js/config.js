@@ -7,6 +7,6 @@ export const MODES = [
   { id: 'fewest_walking', label: 'Least walking', short: 'Walking' }
 ];
 
-// Live arrival times appear only inside the trip guide (planner.html).
-// Set to true to also show them on the map page (nearby list + station slider).
-export const SHOW_LIVE_ON_MAP = false;
+// The map page shows only the NEXT vehicle per nearby service / station (with the live icon).
+// The full live board, vehicle sheet, alerts and walking connections live on the line screen and trip guide.
+export const SHOW_LIVE_ON_MAP = true;
