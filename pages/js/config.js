@@ -9,4 +9,4 @@ export const MODES = [
 
 // The map page shows only the NEXT vehicle per nearby service / station (with the live icon).
 // The full live board, vehicle sheet, alerts and walking connections live on the line screen and trip guide.
-export const SHOW_LIVE_ON_MAP = false;
+export const SHOW_LIVE_ON_MAP = true;
