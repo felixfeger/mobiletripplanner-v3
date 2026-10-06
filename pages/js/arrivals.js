@@ -36,6 +36,12 @@ function track(v, targetId, net) {
 }
 
 export function etaMinutes(v, targetId, net) { const r = track(v, targetId, net); return r ? r.minutes : null; }
+export function trackVehicle(v, targetId, net) { return track(v, targetId, net); }
+export function vehicleAgeSec(v) {
+  if (!v || !v.last_updated) return null;
+  const ms = Date.parse(String(v.last_updated).replace(' ', 'T') + 'Z');
+  return Number.isFinite(ms) ? Math.max(0, Math.round((Date.now() - ms) / 1000)) : null;
+}
 
 // Vehicles heading to a station in one direction, soonest first.
 export function vehiclesTo(stationId, lineId, dirKey, net) {
@@ -78,6 +84,8 @@ export function trackedVehicle(leg, net) {
 }
 
 // ── nearby / station helpers ──
+// Services further than this from the pinned spot are not "nearby" and are not listed.
+export const MAX_WALK_MIN = 20;
 export function walkMinutes(distPx, net) {
   return Math.max(1, Math.round((distPx / net.settings.px_per_mile / net.settings.walk_mph) * 60));
 }
@@ -95,7 +103,7 @@ export function stationBoard(stationId, net) {
 export function nearbyServices(pin, net, maxStations = 6) {
   const near = net.stations.map(s => ({ s, d: Math.hypot(s.x - pin.x, s.y - pin.y) }))
     .sort((a, b) => a.d - b.d).slice(0, maxStations)
-    .filter((x, i) => i < 2 || walkMinutes(x.d, net) <= 20);
+    .filter(x => walkMinutes(x.d, net) <= MAX_WALK_MIN);
   const best = new Map();
   for (const { s, d } of near) {
     for (const lineId of s.lineIds) {
