@@ -280,7 +280,12 @@ button { cursor: pointer; background: none; border: 0; text-align: inherit; }
 .pane .eyebrow { margin-left: 1rem; } .pane .tiles { padding: 0 1rem; } .pane .stoplist { margin: .3rem 1rem 0 1.5rem; }
 .ls-stop { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 1rem; }
 .ls-eta { font-weight: 700; white-space: nowrap; color: var(--ink-2); } .ls-eta b { font-size: 1.15rem; color: var(--ink); }
-.ls-veh { display: flex; align-items: center; gap: .8rem; padding: .7rem 1rem; border-top: 1px solid var(--line); } .ls-veh > div { flex: 1; display: grid; } .ls-veh small { color: var(--muted); }
+.ls-veh { display: flex; align-items: center; gap: .8rem; width: 100%; padding: .7rem 1rem; border-top: 1px solid var(--line); text-align: left; background: none; }
+.ls-veh:hover { background: #f9fafb; } .ls-veh-main { flex: 1; display: grid; min-width: 0; } .ls-veh small { color: var(--muted); }
+.nav-card .ls-vehs { margin: 0 -18px; } .nav-card .ls-veh { padding-left: 18px; padding-right: 18px; }
+.tiles-row .ls-vehs { margin: 0 -14px; }
+.veh-sub { color: var(--muted); font-size: .85rem; margin: -8px 0 12px; }
+.near-empty { display: grid; justify-items: start; gap: .6rem; padding: 1.2rem 1rem; } .near-empty p { color: var(--muted); }
 .ls-dialog { width: min(100%, 520px); height: 90vh; max-height: 90vh; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ls-dialog .ls { flex: 1; overflow-y: auto; }
 
