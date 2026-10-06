@@ -1,6 +1,6 @@
-// Live arrival estimates from vehicle positions (same model as the old site:
-// a vehicle runs to the end of its line, turns around, and comes back).
-// Note: the database column is named speed_kmh but the old site treated it as mph; kept.
+// Live arrival maths. A vehicle runs to the end of its line, turns around and comes back.
+// Directions: "outbound" = toward the last station of the line as drawn, "inbound" = toward the first.
+// (The database column speed_kmh is treated as mph, as the old site did.)
 
 function orderedLine(lineId, net) {
   let segs = (net.segsByLine[lineId] || []).filter(s => s.direction === 'both');
@@ -11,58 +11,77 @@ function orderedLine(lineId, net) {
   return { segs, ids, first: net.stationsById[ids[0]], last: net.stationsById[ids[ids.length - 1]] };
 }
 
-function secondsAtSpeed(distPx, mph, pxPerMile) {
-  if (!distPx || distPx <= 0 || !mph || mph <= 0) return 0;
-  return (distPx / pxPerMile / mph) * 3600;
-}
+const secondsAtSpeed = (distPx, mph, pxPerMile) =>
+  !distPx || distPx <= 0 || !mph || mph <= 0 ? 0 : (distPx / pxPerMile / mph) * 3600;
 
-export function etaMinutes(v, targetId, net) {
+export const dirKeyOf = (v, line) => (v.headsign && line.first && v.headsign === line.first.name ? 'inbound' : 'outbound');
+
+// How far (seconds + stops) is vehicle v from a station on its line?
+function track(v, targetId, net) {
   if (!v || v.next_station_id == null) return null;
   const line = orderedLine(v.line_id, net);
   if (!line) return null;
-  const { segs, ids, first } = line;
-  const target = ids.indexOf(targetId), next = ids.indexOf(v.next_station_id);
-  if (target < 0 || next < 0) return null;
-
-  const forward = !(v.headsign && first && v.headsign === first.name);
-  let secs = v.next_x != null
-    ? secondsAtSpeed(Math.hypot(v.next_x - v.x, v.next_y - v.y), v.speed_kmh, net.settings.px_per_mile) : 0;
-  const hop = i => segs[i].travel_seconds;
-
-  if (forward) {
-    if (target >= next) for (let i = next; i < target; i++) secs += hop(i);
-    else { for (let i = next; i < segs.length; i++) secs += hop(i); for (let i = segs.length - 1; i >= target; i--) secs += hop(i); }
-  } else if (target <= next) {
-    for (let i = next; i > target; i--) secs += hop(i - 1);
-  } else {
-    for (let i = next; i > 0; i--) secs += hop(i - 1);
-    for (let i = 0; i < target; i++) secs += hop(i);
-  }
-  return Math.max(1, Math.round(secs / 60));
+  const { segs, ids } = line;
+  const t = ids.indexOf(targetId), n = ids.indexOf(v.next_station_id);
+  if (t < 0 || n < 0) return null;
+  const L = ids.length - 1, hop = i => segs[i].travel_seconds;
+  let secs = v.next_x != null ? secondsAtSpeed(Math.hypot(v.next_x - v.x, v.next_y - v.y), v.speed_kmh, net.settings.px_per_mile) : 0;
+  let stops;
+  if (dirKeyOf(v, line) === 'outbound') {
+    if (t >= n) { for (let i = n; i < t; i++) secs += hop(i); stops = t - n + 1; }
+    else { for (let i = n; i < segs.length; i++) secs += hop(i); for (let i = segs.length - 1; i >= t; i--) secs += hop(i); stops = (L - n + 1) + (L - t); }
+  } else if (t <= n) { for (let i = n; i > t; i--) secs += hop(i - 1); stops = n - t + 1; }
+  else { for (let i = n; i > 0; i--) secs += hop(i - 1); for (let i = 0; i < t; i++) secs += hop(i); stops = n + 1 + t; }
+  return { secs, stops, minutes: Math.max(1, Math.round(secs / 60)) };
 }
 
-// Two directions per line at a station: toward the last terminal, toward the first.
+export function etaMinutes(v, targetId, net) { const r = track(v, targetId, net); return r ? r.minutes : null; }
+
+// Vehicles heading to a station in one direction, soonest first.
+export function vehiclesTo(stationId, lineId, dirKey, net) {
+  const line = orderedLine(lineId, net);
+  if (!line) return [];
+  return (net.vehicles || []).filter(v => v.line_id === lineId && dirKeyOf(v, line) === dirKey)
+    .map(v => ({ v, ...track(v, stationId, net) })).filter(x => x.secs != null && x.minutes != null)
+    .sort((a, b) => a.secs - b.secs);
+}
+
+// Two directions per line at a station (the one that would "arrive" at the terminus is dropped).
 export function departures(stationId, lineId, net) {
   const line = orderedLine(lineId, net);
   if (!line || !line.first || !line.last) return [];
-  const mine = (net.vehicles || []).filter(v => v.line_id === lineId);
-  const make = (dest, match) => ({
-    headsign: dest.name, destId: dest.id,
-    etas: mine.filter(match).map(v => etaMinutes(v, stationId, net)).filter(m => m != null).sort((a, b) => a - b).slice(0, 4)
-  });
-  const out = [make(line.last, v => !v.headsign || v.headsign === line.last.name)];
-  // A station at the very end of the line has nothing heading further that way.
-  if (line.first.id !== line.last.id) out.push(make(line.first, v => v.headsign === line.first.name));
+  const make = (key, dest) => {
+    const list = vehiclesTo(stationId, lineId, key, net);
+    return { key, headsign: dest.name, destId: dest.id, vehicles: list, etas: list.map(x => x.minutes).slice(0, 4) };
+  };
+  const out = [make('outbound', line.last)];
+  if (line.first.id !== line.last.id) out.push(make('inbound', line.first));
   return out.filter(d => d.destId !== stationId);
 }
 
-// ── helpers added for the nearby list, station slider and planner ──────────
+export function dirKeyFor(lineId, headsign, net) {
+  const l = orderedLine(lineId, net);
+  return l && l.first && headsign === l.first.name && l.first.id !== l.last.id ? 'inbound' : 'outbound';
+}
+export function terminals(lineId, net) { const l = orderedLine(lineId, net); return l ? { first: l.first, last: l.last } : { first: null, last: null }; }
 
+// What the vehicle sheet needs: the soonest vehicle that will reach `leg.from`.
+export function trackedVehicle(leg, net) {
+  const key = dirKeyFor(leg.line_id, leg.headsign, net);
+  const best = vehiclesTo(leg.from.id, leg.line_id, key, net)[0];
+  if (!best) return null;
+  const next = net.stationsById[best.v.next_station_id];
+  const atStop = best.v.next_x != null && Math.hypot(best.v.next_x - best.v.x, best.v.next_y - best.v.y) <= 6;
+  let age = null;
+  if (best.v.last_updated) { const ms = Date.parse(String(best.v.last_updated).replace(' ', 'T') + 'Z'); if (Number.isFinite(ms)) age = Math.max(0, Math.round((Date.now() - ms) / 1000)); }
+  return { v: best.v, minutes: best.minutes, stops: best.stops, nextName: (next && next.name) || best.v.next_station_name || '', atStop, ageSec: age };
+}
+
+// ── nearby / station helpers ──
 export function walkMinutes(distPx, net) {
   return Math.max(1, Math.round((distPx / net.settings.px_per_mile / net.settings.walk_mph) * 60));
 }
 
-// Every upcoming arrival at one station, grouped by line (in line order).
 export function stationBoard(stationId, net) {
   const st = net.stationsById[stationId];
   if (!st) return [];
@@ -72,7 +91,7 @@ export function stationBoard(stationId, net) {
     .filter(b => b.dirs.length);
 }
 
-// "Options near me": the nearest stations to a spot, one row per line + direction.
+// "Options near me": nearest stations, one row per line + direction.
 export function nearbyServices(pin, net, maxStations = 6) {
   const near = net.stations.map(s => ({ s, d: Math.hypot(s.x - pin.x, s.y - pin.y) }))
     .sort((a, b) => a.d - b.d).slice(0, maxStations)
@@ -83,12 +102,12 @@ export function nearbyServices(pin, net, maxStations = 6) {
       const line = net.linesById[lineId];
       if (!line) continue;
       for (const dir of departures(s.id, lineId, net)) {
-        const key = `${lineId}|${dir.destId}`, cur = best.get(key);
+        const key = `${lineId}|${dir.key}`, cur = best.get(key);
         if (!cur || d < cur.d) best.set(key, { line, station: s, d, dir, etas: dir.etas, walkMin: walkMinutes(d, net) });
       }
     }
   }
-  return [...best.values()].sort((a, b) => (a.etas[0] ?? 1e9) - (b.etas[0] ?? 1e9) || a.d - b.d);
+  return [...best.values()].sort((a, b) => a.d - b.d || (a.etas[0] ?? 1e9) - (b.etas[0] ?? 1e9));
 }
 
 export function nearestStation(p, net) {
@@ -97,7 +116,6 @@ export function nearestStation(p, net) {
   return best ? { station: best, dist: bd } : null;
 }
 
-// Name of the closest named street, if the spot is actually on/near one.
 export function nearestStreet(p, net, maxPx = 45) {
   let name = null, bd = Infinity;
   for (const st of net.streets) {
@@ -113,7 +131,7 @@ export function nearestStreet(p, net, maxPx = 45) {
   return bd <= maxPx ? name : null;
 }
 
-// Stations of a line in running order (used by the station slider).
+// Stations of a line in running order.
 export function lineStops(lineId, net) {
   const l = orderedLine(lineId, net);
   return l ? l.ids.map(id => net.stationsById[id]).filter(Boolean) : [];
