@@ -2,7 +2,8 @@
 //  • Starts around Union Station; tap the map to move "you are here".
 //  • "Options near": one row per line, with the NEXT vehicle (minutes + live icon).
 //    Outbound / Inbound = tabs on desktop, swipeable on mobile.
-//  • Tap a row (or a vehicle on the map) -> that line's own menu (linescreen.js).
+//  • Tap a row -> that line's own menu (linescreen.js). While a line menu is open its live vehicles are drawn on the map;
+//    tap one (map or list) for that vehicle's sheet. The general map shows no individual vehicles.
 //  • Tap a station -> popup with next arrivals per direction, sorted by line, plus the lines' stop lists.
 //  • Advisories, walking connections and the full live board live on the line screen / route guide, not here.
 import { loadNetwork, refreshVehicles } from './api.js';
@@ -10,7 +11,8 @@ import { SHOW_LIVE_ON_MAP } from './config.js';
 import { mountChrome, $, esc, lineBadge, safeColor, Tabs, Pager, toast, ICON, liveIcon } from './ui.js';
 import { MapView } from './mapview.js';
 import { renderLineScreen } from './linescreen.js';
-import { nearbyServices, nearestStation, nearestStreet, stationBoard, lineStops, walkMinutes } from './arrivals.js';
+import { vehicleSheet, trackedMark } from './vehiclesheet.js';
+import { nearbyServices, nearestStation, nearestStreet, stationBoard, lineStops, walkMinutes, MAX_WALK_MIN } from './arrivals.js';
 
 mountChrome('map');
 
@@ -21,6 +23,7 @@ const wide = () => matchMedia('(min-width: 900px)').matches;
 $('#searchIc').innerHTML = ICON.search;
 
 let net, view, pin, openId = null, nearPager = null, popPager = null, lineCtl = null;
+let homePin = null, homeName = '', vehCtx = null, lineStation = null;
 let mode = 'nearby', nearDir = 'outbound', popDir = 'outbound';
 
 // ── visible part of the map, so centring works with panels open ──
@@ -63,25 +66,28 @@ function rowsHtml(rows, label) {
       <span class="svc-stop">${esc(r.station.name)} · ${r.walkMin} min walk</span></span>
     ${nextEta(r.etas, r.line.type)}</button>`).join('');
 }
-const nearItems = () => {
-  const rows = nearbyServices(pin, net, 10);
-  return DIRS.map(([id, label]) => ({ id, label, html: rowsHtml(rows.filter(r => r.dir.key === id), label.toLowerCase()) }));
-};
+const nearItems = rows => DIRS.map(([id, label]) => ({ id, label, html: rowsHtml(rows.filter(r => r.dir.key === id), label.toLowerCase()) }));
 function bindRows() { body.querySelectorAll('.svc').forEach(b => b.onclick = () => openLine(b.dataset.line, +b.dataset.station)); }
 
 function renderNearby(keepPager = false) {
   mode = 'nearby';
+  const rows = nearbyServices(pin, net, 10);
   const keep = body.scrollTop;
-  if (keepPager && nearPager && body.contains(nearPager.el)) {
-    nearPager.update(nearItems());
+  if (!rows.length) {   // nothing within a real walking distance: say so instead of listing far-away services
+    nearPager = null;
+    body.innerHTML = `<button class="near-bar" id="nearBar" aria-label="Centre map on my location"></button>
+      <div class="near-empty"><strong>No stops within a ${MAX_WALK_MIN}-minute walk</strong>
+        <p>Tap the map closer to the network, or jump back to ${esc(homeName)}.</p>
+        <button class="btn btn-primary" id="backHome">Back to ${esc(homeName)}</button></div>`;
     updateBar();
-    bindRows();
+    $('#backHome').onclick = () => { setPin({ ...homePin }); view.focusAt(homePin.x, homePin.y, 0.9); };
     return;
   }
+  if (keepPager && nearPager && body.contains(nearPager.el)) { nearPager.update(nearItems(rows)); updateBar(); bindRows(); return; }
   body.innerHTML = `<button class="near-bar" id="nearBar" aria-label="Centre map on my location"></button>
     <p class="tip">Tap the map to move your location. Tap a service to open that line.</p><div id="pagerHost"></div>`;
   updateBar();
-  nearPager = Pager({ items: nearItems(), active: nearDir, label: 'Direction', onChange: id => { nearDir = id; } });
+  nearPager = Pager({ items: nearItems(rows), active: nearDir, label: 'Direction', onChange: id => { nearDir = id; } });
   $('#pagerHost').append(nearPager.el);
   bindRows();
   body.scrollTop = keep;
@@ -92,20 +98,22 @@ function updateBar() {
   const bar = $('#nearBar');
   bar.innerHTML = `<span class="near-ic">${ICON.locate}</span>
     <span class="near-txt"><small>Options near</small><strong>${esc(street || (near && near.station.name) || 'the network')}</strong></span>
-    ${walk != null ? `<span class="near-walk">${ICON.walk}<span>${walk} min</span></span>` : ''}`;
+    ${walk != null && walk <= MAX_WALK_MIN ? `<span class="near-walk">${ICON.walk}<span>${walk} min</span></span>` : ''}`;
   bar.onclick = () => view.focusAt(pin.x, pin.y, Math.max(view.map.scale, 0.9));
 }
 
-// ── a line's own menu ──
+// ── a line's own menu: its live vehicles are drawn on the map while it is open ──
 function openLine(lineId, stationId = null) {
   if (!net.linesById[lineId]) return;
   if (openId != null) closeStation(true);
-  mode = 'line'; nearPager = null;
+  mode = 'line'; nearPager = null; vehCtx = null; lineStation = stationId;
   if (lineCtl) lineCtl.destroy();
-  view.set({ focusLine: lineId }); view.fitLine(lineId);
+  view.set({ focusLine: lineId, showVehicles: true, vehicleLines: new Set([lineId]), tracked: null });
+  view.fitLine(lineId);
   lineCtl = renderLineScreen(body, {
     net, lineId, stationId, backLabel: 'Nearby',
-    onBack: backToNearby, onStation: openStation, onShowMap: () => view.fitLine(lineId)
+    onBack: backToNearby, onStation: openStation, onShowMap: () => view.fitLine(lineId),
+    onVehicle: v => showVehicle(v, lineId, stationId)
   });
   body.scrollTop = 0;
   setSide('open');
@@ -113,11 +121,32 @@ function openLine(lineId, stationId = null) {
 }
 function backToNearby() {
   if (lineCtl) { lineCtl.destroy(); lineCtl = null; }
-  view.set({ focusLine: null });
+  vehCtx = null; lineStation = null;
+  view.set({ focusLine: null, showVehicles: false, vehicleLines: null, tracked: null });
   history.replaceState(null, '', location.pathname);
   renderNearby();
   view.focusAt(pin.x, pin.y, 0.9);
   setSide('peek');
+}
+
+// ── one vehicle's sheet (only after tapping that vehicle) ──
+function showVehicle(v, lineId, stationId) {
+  mode = 'vehicle';
+  if (lineCtl) { lineCtl.destroy(); lineCtl = null; }
+  vehCtx = { id: v.id, lineId, stationId };
+  renderVehiclePanel(true);
+  setSide('open');
+}
+function renderVehiclePanel(focus = false) {
+  const v = (net.vehicles || []).find(x => String(x.id) === String(vehCtx.id));
+  if (!v) return openLine(vehCtx.lineId, vehCtx.stationId);
+  const line = net.linesById[v.line_id], keep = body.scrollTop;
+  body.innerHTML = `<div class="ls"><div class="ls-head"><button class="ls-back" id="vBack">${ICON.back}<span>${esc(line.name)}</span></button></div>
+    ${vehicleSheet({ net, v, stationId: vehCtx.stationId, mode: 'browse' })}</div>`;
+  $('#vBack').onclick = () => openLine(vehCtx.lineId, vehCtx.stationId);
+  view.set({ tracked: trackedMark(net, v, vehCtx.stationId), focusLine: v.line_id, showVehicles: true, vehicleLines: new Set([v.line_id]) });
+  if (focus) view.focusAt(v.x, v.y, Math.max(view.map.scale, 1.1));
+  body.scrollTop = keep;
 }
 
 // ── station popup ──
@@ -212,7 +241,8 @@ async function boot() {
     wrap: $('#mapWrap'), canvas: $('#mapCanvas'), net, insets,
     showVehicles: false, showWalkLinks: false,   // index.html: no individual vehicles or walking routes on the map
     onStation: openStation,
-    onEmpty: w => { if (openId != null) closeStation(); if (mode === 'line') backToNearby(); setPin({ x: w.x, y: w.y }); }
+    onVehicle: v => showVehicle(v, v.line_id, lineStation),
+    onEmpty: w => { if (openId != null) closeStation(); if (mode !== 'nearby') backToNearby(); setPin({ x: w.x, y: w.y }); }
   });
   view.map.onResize = () => view.reframe();
 
@@ -223,6 +253,7 @@ async function boot() {
   // Always start around Union Station.
   const union = net.stations.find(s => /union/i.test(s.name)) || net.stations.find(s => s.type === 'hub') || net.stations[0];
   pin = union ? { x: union.x, y: union.y } : { x: (view.map.bounds.x0 + view.map.bounds.x1) / 2, y: (view.map.bounds.y0 + view.map.bounds.y1) / 2 };
+  homePin = { ...pin }; homeName = union ? union.name : 'the network';
   view.set({ pin });
   renderNearby();
   view.focusAt(pin.x, pin.y, 0.9);
@@ -235,7 +266,7 @@ async function boot() {
     if (document.hidden) return;
     try {
       await refreshVehicles(net); view.render();
-      if (mode === 'nearby') renderNearby(true); else if (lineCtl) lineCtl.refresh();
+      if (mode === 'nearby') renderNearby(true); else if (mode === 'line' && lineCtl) lineCtl.refresh(); else if (mode === 'vehicle' && vehCtx) renderVehiclePanel();
       if (openId != null) paintPopup(net.stationsById[openId]);
     } catch { /* keep last good data */ }
   }, 15000);
