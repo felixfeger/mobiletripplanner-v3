@@ -149,7 +149,10 @@ function popItems(s) {
         <span><strong>${esc(b.line.name)}</strong><small>${ICON.arrow} ${esc(d.headsign)}</small></span><span class="svc-go">${ICON.chevron}</span></button>
         <div class="tiles">${tiles}</div></div>`;
     }).join('');
-    return { id: key, label, html: cards || `<p class="hint">No ${label.toLowerCase()} service at this stop.</p>` };
+    // On mobile the tab switcher is hidden (you swipe), so each pane says which direction it is.
+    const other = key === 'outbound' ? 'Inbound' : 'Outbound', arrow = key === 'outbound' ? 'Swipe for ' + other + ' ›' : '‹ Swipe for ' + other;
+    const tag = `<div class="pane-label"><strong>${label}</strong><span>${arrow}</span></div>`;
+    return { id: key, label, html: tag + (cards || `<p class="hint">No ${label.toLowerCase()} service at this stop.</p>`) };
   });
 }
 
@@ -207,8 +210,8 @@ async function boot() {
   }
   view = new MapView({
     wrap: $('#mapWrap'), canvas: $('#mapCanvas'), net, insets,
+    showVehicles: false, showWalkLinks: false,   // index.html: no individual vehicles or walking routes on the map
     onStation: openStation,
-    onVehicle: v => openLine(v.line_id),
     onEmpty: w => { if (openId != null) closeStation(); if (mode === 'line') backToNearby(); setPin({ x: w.x, y: w.y }); }
   });
   view.map.onResize = () => view.reframe();
