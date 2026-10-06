@@ -259,10 +259,12 @@ button { cursor: pointer; background: none; border: 0; text-align: inherit; }
 .pager-wrap > .tabs { margin: 8px 14px; }
 .pager { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .pager::-webkit-scrollbar { display: none; }
-.pane { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; }
+.pane { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; align-self: flex-start; }
+@media (max-width: 899px) { .pager { overflow-y: hidden; } }
 @media (min-width: 900px) { .pager { display: block; overflow: visible; } .pane { display: none; } .pane.is-active { display: block; } }
 
 /* ── station popup cards + slider heads ── */
+.pane-label { display: none; }
 .pop-h { margin-left: 1rem; }
 .pcard { padding: 6px 16px 10px; border-top: 1px solid var(--line); }
 .pcard-head, .slide-head { display: flex; align-items: center; gap: .8rem; width: 100%; padding: .55rem 0; }
@@ -321,6 +323,9 @@ button.tile { cursor: pointer; } .tile .tap { display: block; font-size: .68rem;
   .plan[data-view="search"] .side-handle, .plan[data-view="options"] .side-handle, .plan[data-view="done"] .side-handle, .plan[data-view="nav"] .side-handle, .plan[data-view="vehicle"] .side-handle { display: none; }
   .plan .side-handle { background: var(--black); border-radius: 22px 22px 0 0; }
   .plan .side-handle span { background: #525252; }
+  #popup .tabs { display: none; }
+  #popup .pane-label { display: flex; justify-content: space-between; align-items: baseline; padding: .2rem 1rem .1rem; }
+  #popup .pane-label span { color: var(--muted); font-size: .8rem; font-weight: 700; }
   .map-ctrls { top: 72px; }
   .plan .map-ctrls { top: 12px; }
   .toast { bottom: 90px; }
