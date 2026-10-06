@@ -10,7 +10,7 @@ export class MapView {
   constructor({ wrap, canvas, net, onStation, onVehicle, onEmpty, insets }) {
     this.net = net;
     this.route = null; this.activeLeg = null; this.pin = null;
-    this.selectedId = null; this.focusLine = null; this._focus = null;
+    this.selectedId = null; this.focusLine = null; this._focus = null; this.tracked = null; this._icons = {};
     this.onStation = onStation; this.onVehicle = onVehicle; this.onEmpty = onEmpty;
     this.map = new CanvasMap(wrap, canvas, { insets, onDraw: (c, m) => this.draw(c, m), onTap: (w, s) => this.tap(w, s) });
     this.map.setBounds(this.bounds());
@@ -80,6 +80,7 @@ export class MapView {
     }
     ctx.globalAlpha = 1;
     if (route) this.drawRoute(ctx, k, grow);
+    if (this.tracked) this.drawTracked(ctx, k);
 
     const onRoute = route ? idsOnRoute(route) : null;
     for (const s of net.stations) {
@@ -116,6 +117,35 @@ export class MapView {
       ctx.beginPath(); ctx.arc(this.pin.x, this.pin.y, 17 * k, 0, Math.PI * 2); ctx.fillStyle = 'rgba(29,78,216,.2)'; ctx.fill();
       ctx.beginPath(); ctx.arc(this.pin.x, this.pin.y, 8 * k, 0, Math.PI * 2); ctx.fillStyle = '#1d4ed8'; ctx.fill();
       ctx.lineWidth = 3 * k; ctx.strokeStyle = '#fff'; ctx.stroke();
+    }
+  }
+
+  icon(type) {
+    if (!this._icons[type]) {
+      const img = new Image();
+      img.onload = () => this.map.render(); img.onerror = () => { img._bad = true; };
+      img.src = type === 'rail' ? 'img/trains.png' : 'img/bus.png';
+      this._icons[type] = img;
+    }
+    return this._icons[type];
+  }
+
+  // The vehicle the guide is following: black chip with your white bus/train icon, ringed in the line colour.
+  drawTracked(ctx, k) {
+    const t = this.tracked, color = safeColor(t.color, '#111827');
+    ctx.beginPath(); ctx.arc(t.x, t.y, 22 * k, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.lineWidth = 5 * k; ctx.strokeStyle = color; ctx.stroke();
+    ctx.beginPath(); ctx.arc(t.x, t.y, 16 * k, 0, Math.PI * 2); ctx.fillStyle = '#000'; ctx.fill();
+    const img = this.icon(t.type), w = 22 * k;
+    if (img.complete && img.naturalWidth && !img._bad) ctx.drawImage(img, t.x - w / 2, t.y - w / 2, w, w);
+    else { ctx.fillStyle = '#fff'; ctx.fillRect(t.x - 6 * k, t.y - 7 * k, 12 * k, 12 * k); }
+    if (t.minutes != null) {
+      const txt = `${t.minutes}m`;
+      ctx.font = `700 ${12 * k}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const w2 = ctx.measureText(txt).width + 12 * k, px = t.x + 22 * k, py = t.y - 24 * k;
+      ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px - w2 / 2, py - 10 * k, w2, 20 * k, 10 * k) : ctx.rect(px - w2 / 2, py - 10 * k, w2, 20 * k); ctx.fill();
+      ctx.lineWidth = 2 * k; ctx.strokeStyle = '#fff'; ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.fillText(txt, px, py + k);
     }
   }
 
