@@ -1,24 +1,29 @@
 // Map page.
-//  • Starts around Union Station; tap anywhere on the map to move "you are here".
-//  • "Options near" lists the services around that spot. Tapping one opens the planner (planner.html?from=…).
-//  • Tapping a station opens a popup with a slider: one slide per line (directions + stops).
-//  • Live arrival times are hidden here (SHOW_LIVE_ON_MAP in config.js) — they appear in the trip guide.
-import { api, loadNetwork, refreshVehicles } from './api.js';
+//  • Starts around Union Station; tap the map to move "you are here".
+//  • "Options near": one row per line, with the NEXT vehicle (minutes + live icon).
+//    Outbound / Inbound = tabs on desktop, swipeable on mobile.
+//  • Tap a row (or a vehicle on the map) -> that line's own menu (linescreen.js).
+//  • Tap a station -> popup with next arrivals per direction, sorted by line, plus the lines' stop lists.
+//  • Advisories, walking connections and the full live board live on the line screen / route guide, not here.
+import { loadNetwork, refreshVehicles } from './api.js';
 import { SHOW_LIVE_ON_MAP } from './config.js';
-import { mountChrome, $, esc, lineBadge, safeColor, Tabs, toast, fmtMin, fmtMiles, ICON, liveIcon } from './ui.js';
+import { mountChrome, $, esc, lineBadge, safeColor, Tabs, Pager, toast, ICON, liveIcon } from './ui.js';
 import { MapView } from './mapview.js';
+import { renderLineScreen } from './linescreen.js';
 import { nearbyServices, nearestStation, nearestStreet, stationBoard, lineStops, walkMinutes } from './arrivals.js';
 
 mountChrome('map');
 
-const app = $('#app'), side = $('#side'), body = $('#sideBody'), popup = $('#popup');
+const side = $('#side'), body = $('#sideBody'), popup = $('#popup');
 const TYPE_LABEL = { hub: 'Transit hub', station: 'Rail station', stop: 'Bus stop' };
+const DIRS = [['outbound', 'Outbound'], ['inbound', 'Inbound']];
 const wide = () => matchMedia('(min-width: 900px)').matches;
 $('#searchIc').innerHTML = ICON.search;
 
-let net, view, pin, openId = null, slideTabs = null;
+let net, view, pin, openId = null, nearPager = null, popPager = null, lineCtl = null;
+let mode = 'nearby', nearDir = 'outbound', popDir = 'outbound';
 
-// ── what part of the map is actually visible (so centering "just works" with panels open) ──
+// ── visible part of the map, so centring works with panels open ──
 function insets() {
   if (wide()) return { top: 64, right: 60, bottom: 20, left: openId != null ? 420 : 20 };
   const peek = parseInt(getComputedStyle(side).getPropertyValue('--peek')) || 300;
@@ -26,8 +31,6 @@ function insets() {
   return { top: 70, right: 10, bottom: bottom + 10, left: 10 };
 }
 const settle = () => setTimeout(() => view && view.reframe(), 320);
-
-// ── bottom sheet (mobile): tap or drag the handle ──
 function setSide(state) { side.dataset.state = state; settle(); }
 (() => {
   const h = $('#sideHandle'); let y0 = null;
@@ -39,60 +42,85 @@ function setSide(state) { side.dataset.state = state; settle(); }
   });
 })();
 
-// ── "you are here" + nearby services ──
-function setPin(p, { center = false } = {}) {
-  pin = p; view.set({ pin });
-  if (center) view.focusAt(p.x, p.y, Math.max(view.map.scale, 0.9));
-  renderNearby();
-}
+// ── "you are here" + nearby ──
+function setPin(p) { pin = p; view.set({ pin }); if (mode === 'nearby') renderNearby(true); }
 
-let advisories = [];
-function renderNearby() {
+// The mark in front of a row: the line's own image as-is, else a rail badge, else the bus number.
+function lineMark(l) {
+  if (l.image_url || l.type === 'rail') return lineBadge(l, 'xl');
+  return `<span class="svc-num" style="--c:${safeColor(l.color, '#111827')}">${esc(l.id)}</span>`;
+}
+function nextEta(etas, type) {
+  return SHOW_LIVE_ON_MAP && etas.length
+    ? `<span class="svc-eta">${liveIcon(type)}<b>${etas[0]}</b><small>minutes</small></span>`
+    : `<span class="svc-eta none"><small>No live<br>vehicle</small></span>`;
+}
+function rowsHtml(rows, label) {
+  if (!rows.length) return `<p class="hint">No ${label} services nearby.</p>`;
+  return rows.map(r => `<button class="svc" data-line="${esc(r.line.id)}" data-station="${r.station.id}" aria-label="${esc(r.line.name)} toward ${esc(r.dir.headsign)}">
+    <span class="svc-main">${lineMark(r.line)}
+      <span class="svc-dest">${ICON.arrow}<span>${esc(r.dir.headsign)}</span></span>
+      <span class="svc-stop">${esc(r.station.name)} · ${r.walkMin} min walk</span></span>
+    ${nextEta(r.etas, r.line.type)}</button>`).join('');
+}
+const nearItems = () => {
+  const rows = nearbyServices(pin, net, 10);
+  return DIRS.map(([id, label]) => ({ id, label, html: rowsHtml(rows.filter(r => r.dir.key === id), label.toLowerCase()) }));
+};
+function bindRows() { body.querySelectorAll('.svc').forEach(b => b.onclick = () => openLine(b.dataset.line, +b.dataset.station)); }
+
+function renderNearby(keepPager = false) {
+  mode = 'nearby';
   const keep = body.scrollTop;
-  let rows = nearbyServices(pin, net, 8);
-  if (!SHOW_LIVE_ON_MAP) rows.sort((a, b) => a.d - b.d || a.line.id.localeCompare(b.line.id));
-
-  const street = nearestStreet(pin, net), near = nearestStation(pin, net);
-  const label = street || (near && near.station.name) || 'the network';
-  const walk = near ? walkMinutes(near.dist, net) : null;
-
-  const list = rows.map(r => {
-    const l = r.line, color = safeColor(l.color, '#111827');
-    const mark = l.type === 'rail' ? lineBadge(l, 'xl') : `<span class="svc-num" style="--c:${color}">${esc(l.id)}</span>`;
-    const eta = SHOW_LIVE_ON_MAP && r.etas.length ? `<span class="live-eta"><b>${r.etas[0]}</b> min ${liveIcon(l.type)}</span>` : '';
-    return `<button class="svc" data-station="${r.station.id}" aria-label="Plan a trip from ${esc(r.station.name)} on ${esc(l.name)}">
-      <span class="svc-main">${mark}
-        <span class="svc-dest">${ICON.arrow}<span>${esc(r.dir.headsign)}</span></span>
-        <span class="svc-stop">${esc(r.station.name)} · ${r.walkMin} min walk</span></span>
-      ${eta}<span class="svc-go">${ICON.chevron}</span></button>`;
-  }).join('');
-
-  const lines = net.lines.map(l => `<button class="line-pill${view.focusLine === l.id ? ' is-active' : ''}" data-line="${esc(l.id)}">${lineBadge(l)} ${esc(l.name)}</button>`).join('');
-
-  body.innerHTML = `
-    <button class="near-bar" id="nearBar" aria-label="Centre map on my location">
-      <span class="near-ic">${ICON.locate}</span>
-      <span class="near-txt"><small>Options near</small><strong>${esc(label)}</strong></span>
-      ${walk != null ? `<span class="near-walk">${ICON.walk}<span>${walk} min</span></span>` : ''}
-    </button>
-    <p class="tip">Tap the map to move your location. Tap a service to plan a trip from that stop.</p>
-    <div id="svcList">${list || '<p class="hint">No services found nearby.</p>'}</div>
-    ${advisories.length ? '<h3 class="eyebrow">Service alerts</h3>' : ''}
-    ${advisories.slice(0, 3).map(a => `<div class="adv ${esc(a.severity)}" role="note"><strong>${esc(a.title)}</strong><p>${esc(a.body)}</p></div>`).join('')}
-    <h3 class="eyebrow">Lines</h3><div class="line-pills">${lines}</div>`;
+  if (keepPager && nearPager && body.contains(nearPager.el)) {
+    nearPager.update(nearItems());
+    updateBar();
+    bindRows();
+    return;
+  }
+  body.innerHTML = `<button class="near-bar" id="nearBar" aria-label="Centre map on my location"></button>
+    <p class="tip">Tap the map to move your location. Tap a service to open that line.</p><div id="pagerHost"></div>`;
+  updateBar();
+  nearPager = Pager({ items: nearItems(), active: nearDir, label: 'Direction', onChange: id => { nearDir = id; } });
+  $('#pagerHost').append(nearPager.el);
+  bindRows();
   body.scrollTop = keep;
-
-  $('#nearBar').onclick = () => view.focusAt(pin.x, pin.y, Math.max(view.map.scale, 0.9));
-  body.querySelectorAll('.svc').forEach(b => b.onclick = () => { location.href = `planner.html?from=${b.dataset.station}`; });
-  body.querySelectorAll('.line-pill').forEach(b => b.onclick = () => {
-    const same = view.focusLine === b.dataset.line;
-    view.set({ focusLine: same ? null : b.dataset.line });
-    same ? view.fitAll() : view.fitLine(b.dataset.line);
-    renderNearby();
-  });
+}
+function updateBar() {
+  const street = nearestStreet(pin, net), near = nearestStation(pin, net);
+  const walk = near ? walkMinutes(near.dist, net) : null;
+  const bar = $('#nearBar');
+  bar.innerHTML = `<span class="near-ic">${ICON.locate}</span>
+    <span class="near-txt"><small>Options near</small><strong>${esc(street || (near && near.station.name) || 'the network')}</strong></span>
+    ${walk != null ? `<span class="near-walk">${ICON.walk}<span>${walk} min</span></span>` : ''}`;
+  bar.onclick = () => view.focusAt(pin.x, pin.y, Math.max(view.map.scale, 0.9));
 }
 
-// ── station popup with a slider ──
+// ── a line's own menu ──
+function openLine(lineId, stationId = null) {
+  if (!net.linesById[lineId]) return;
+  if (openId != null) closeStation(true);
+  mode = 'line'; nearPager = null;
+  if (lineCtl) lineCtl.destroy();
+  view.set({ focusLine: lineId }); view.fitLine(lineId);
+  lineCtl = renderLineScreen(body, {
+    net, lineId, stationId, backLabel: 'Nearby',
+    onBack: backToNearby, onStation: openStation, onShowMap: () => view.fitLine(lineId)
+  });
+  body.scrollTop = 0;
+  setSide('open');
+  history.replaceState(null, '', `?line=${encodeURIComponent(lineId)}`);
+}
+function backToNearby() {
+  if (lineCtl) { lineCtl.destroy(); lineCtl = null; }
+  view.set({ focusLine: null });
+  history.replaceState(null, '', location.pathname);
+  renderNearby();
+  view.focusAt(pin.x, pin.y, 0.9);
+  setSide('peek');
+}
+
+// ── station popup ──
 function openStation(s) {
   openId = s.id;
   history.replaceState(null, '', `?station=${s.id}`);
@@ -102,30 +130,38 @@ function openStation(s) {
   view.focusStation(s, Math.max(view.map.scale, 1.1));
   setTimeout(() => view.reframe(), 50);
 }
-function closeStation() {
-  openId = null; popup.hidden = true; slideTabs = null;
-  history.replaceState(null, '', location.pathname);
-  view.set({ selectedId: null }); settle();
+function closeStation(quiet = false) {
+  openId = null; popup.hidden = true; popPager = null;
+  view.set({ selectedId: null });
+  if (!quiet) { history.replaceState(null, '', mode === 'line' && lineCtl ? location.search : location.pathname); settle(); }
+}
+
+function popItems(s) {
+  const board = stationBoard(s.id, net);
+  return DIRS.map(([key, label]) => {
+    const cards = board.map(b => {
+      const d = b.dirs.find(x => x.key === key);
+      if (!d) return '';
+      const tiles = SHOW_LIVE_ON_MAP
+        ? (d.etas.length ? d.etas.map((m, i) => `<div class="tile${i ? '' : ' first'}">${i ? '' : liveIcon(b.line.type)}<b>${m}</b><span class="u">min</span></div>`).join('') : '<span class="muted">No vehicles in service</span>')
+        : '';
+      return `<div class="pcard"><button class="pcard-head" data-line="${esc(b.line.id)}">${lineBadge(b.line, 'lg')}
+        <span><strong>${esc(b.line.name)}</strong><small>${ICON.arrow} ${esc(d.headsign)}</small></span><span class="svc-go">${ICON.chevron}</span></button>
+        <div class="tiles">${tiles}</div></div>`;
+    }).join('');
+    return { id: key, label, html: cards || `<p class="hint">No ${label.toLowerCase()} service at this stop.</p>` };
+  });
 }
 
 function slideHtml(b, s) {
-  const color = safeColor(b.line.color, '#111827');
   const stops = lineStops(b.line.id, net);
-  return `<section class="slide" data-line="${esc(b.line.id)}" style="--c:${color}" aria-label="${esc(b.line.name)}">
-    <div class="slide-head">${lineBadge(b.line, 'lg')}<div><strong>${esc(b.line.name)}</strong><small>${b.line.type === 'rail' ? 'Rail' : 'Bus'}${b.line.frequency ? ' · ' + esc(b.line.frequency) : ''}</small></div></div>
-    ${b.dirs.map(d => `<div class="dir"><div class="dir-name">${ICON.arrow} To ${esc(d.headsign)}</div>
-      ${SHOW_LIVE_ON_MAP ? `<div class="tiles">${d.etas.length ? d.etas.map((m, i) => `<div class="tile${i ? '' : ' first'}">${i ? '' : liveIcon(b.line.type)}<b>${m}</b><span class="u">min</span></div>`).join('') : '<span class="muted">No vehicles in service</span>'}</div>` : ''}
-    </div>`).join('')}
-    ${stops.length ? `<h4 class="eyebrow" style="margin-left:0">Stops on this line</h4>
-      <ol class="stoplist">${stops.map(x => `<li class="${x.id === s.id ? 'here' : ''}"><button data-open="${x.id}">${esc(x.name)}</button></li>`).join('')}</ol>` : ''}
-  </section>`;
+  return `<section class="slide" data-line="${esc(b.line.id)}" style="--c:${safeColor(b.line.color, '#111827')}" aria-label="${esc(b.line.name)}">
+    <button class="slide-head" data-line="${esc(b.line.id)}">${lineBadge(b.line, 'lg')}<span><strong>${esc(b.line.name)}</strong><small>${b.line.type === 'rail' ? 'Rail' : 'Bus'}${b.line.frequency ? ' · ' + esc(b.line.frequency) : ''}</small></span><span class="svc-go">${ICON.chevron}</span></button>
+    ${stops.length ? `<ol class="stoplist">${stops.map(x => `<li class="${x.id === s.id ? 'here' : ''}"><button data-open="${x.id}">${esc(x.name)}</button></li>`).join('')}</ol>` : ''}</section>`;
 }
 
 function paintPopup(s) {
-  const board = stationBoard(s.id, net);
-  const prevLeft = $('.slider', popup) ? $('.slider', popup).scrollLeft : 0;
-  const walks = (net.walkFrom[s.id] || []).slice().sort((a, b) => a.seconds - b.seconds);
-
+  const board = stationBoard(s.id, net), keepTop = popup.scrollTop;
   popup.innerHTML = `
     <div class="popup-head">
       <button class="popup-close" id="popupClose" aria-label="Close station">${ICON.close}</button>
@@ -137,40 +173,29 @@ function paintPopup(s) {
         <button id="imHere">I'm here</button>
       </div>
     </div>
-    <div id="chipHost"></div>
-    <div class="slider" id="slider">${board.length ? board.map(b => slideHtml(b, s)).join('') : '<p class="hint">No lines serve this stop yet.</p>'}</div>
-    ${walks.length ? `<h3 class="eyebrow">Walk to nearby stations</h3>${walks.map(l => {
-      const o = net.stationsById[l.id]; if (!o) return '';
-      return `<div class="walk-row"><button class="walk-main" data-open="${o.id}"><strong>${esc(o.name)}</strong><span class="chips">${o.lineIds.map(id => lineBadge(net.linesById[id])).join('')}</span><small>${fmtMin(l.seconds)} walk · ${fmtMiles(l.miles)}</small></button></div>`;
-    }).join('')}` : ''}
-    <div id="popAlerts"></div>`;
+    <h3 class="eyebrow pop-h">Next arrivals</h3><div id="popPager"></div>
+    ${board.length ? `<h3 class="eyebrow pop-h">Lines at this station</h3><div id="chipHost"></div><div class="slider" id="slider">${board.map(b => slideHtml(b, s)).join('')}</div>` : ''}`;
 
-  $('#popupClose').onclick = closeStation;
+  popPager = Pager({ items: popItems(s), active: popDir, label: 'Direction', onChange: id => { popDir = id; } });
+  $('#popPager').append(popPager.el);
+
+  $('#popupClose').onclick = () => closeStation();
   $('#imHere').onclick = () => { setPin({ x: s.x, y: s.y }); toast(`Location set to ${s.name}`); };
+  popup.querySelectorAll('[data-line]').forEach(b => b.onclick = () => openLine(b.dataset.line, s.id));
   popup.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openStation(net.stationsById[b.dataset.open]));
 
   const slider = $('#slider', popup);
-  if (board.length > 1) {
-    slideTabs = Tabs({
+  if (slider && board.length > 1) {
+    const tabs = Tabs({
       label: 'Lines at this station', variant: 'chips', active: board[0].line.id,
       items: board.map(b => ({ id: b.line.id, html: `${lineBadge(b.line)} <span>${esc(b.line.name)}</span>` })),
-      onChange: id => { const i = board.findIndex(b => b.line.id === id); slider.scrollTo({ left: i * slider.clientWidth, behavior: 'smooth' }); }
+      onChange: id => { slider.scrollTo({ left: board.findIndex(b => b.line.id === id) * slider.clientWidth, behavior: 'smooth' }); }
     });
-    $('#chipHost', popup).append(slideTabs.el);
+    $('#chipHost', popup).append(tabs.el);
     let t;
-    slider.addEventListener('scroll', () => {
-      clearTimeout(t);
-      t = setTimeout(() => { const i = Math.round(slider.scrollLeft / slider.clientWidth); if (board[i]) slideTabs.select(board[i].line.id, { silent: true }); }, 60);
-    });
-    slider.addEventListener('keydown', e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { const i = Math.round(slider.scrollLeft / slider.clientWidth) + (e.key === 'ArrowRight' ? 1 : -1); slider.scrollTo({ left: Math.max(0, Math.min(board.length - 1, i)) * slider.clientWidth, behavior: 'smooth' }); } });
-    slider.tabIndex = 0;
+    slider.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => { const i = Math.round(slider.scrollLeft / slider.clientWidth); if (board[i]) tabs.select(board[i].line.id, { silent: true }); }, 60); });
   }
-  slider.scrollLeft = prevLeft;
-
-  api(`/api/advisories?station_id=${s.id}&line_id=${encodeURIComponent(s.lineIds.join(','))}`).then(list => {
-    if (openId !== s.id) return;
-    $('#popAlerts').innerHTML = list.length ? `<h3 class="eyebrow">Alerts</h3>` + list.map(a => `<div class="adv ${esc(a.severity)}"><strong>${esc(a.title)}</strong><p>${esc(a.body)}</p></div>`).join('') : '';
-  }).catch(() => {});
+  popup.scrollTop = keepTop;
 }
 
 // ── boot ──
@@ -183,32 +208,32 @@ async function boot() {
   view = new MapView({
     wrap: $('#mapWrap'), canvas: $('#mapCanvas'), net, insets,
     onStation: openStation,
-    onVehicle: v => { const l = net.linesById[v.line_id]; toast(`${l ? l.name : 'Vehicle'}${v.headsign ? ' toward ' + v.headsign : ''}`); },
-    onEmpty: w => { if (openId != null) closeStation(); setPin({ x: w.x, y: w.y }); }
+    onVehicle: v => openLine(v.line_id),
+    onEmpty: w => { if (openId != null) closeStation(); if (mode === 'line') backToNearby(); setPin({ x: w.x, y: w.y }); }
   });
   view.map.onResize = () => view.reframe();
 
   $('#zoomIn').onclick = () => view.map.zoomAt(1.3);
   $('#zoomOut').onclick = () => view.map.zoomAt(1 / 1.3);
-  $('#zoomFit').onclick = () => { view.set({ focusLine: null }); view.fitAll(); renderNearby(); };
-
-  api('/api/advisories').then(a => { advisories = a; if (pin) renderNearby(); }).catch(() => {});
+  $('#zoomFit').onclick = () => { view.set({ focusLine: null }); view.fitAll(); };
 
   // Always start around Union Station.
   const union = net.stations.find(s => /union/i.test(s.name)) || net.stations.find(s => s.type === 'hub') || net.stations[0];
-  const start = union ? { x: union.x, y: union.y } : { x: (view.map.bounds.x0 + view.map.bounds.x1) / 2, y: (view.map.bounds.y0 + view.map.bounds.y1) / 2 };
-  pin = start; view.set({ pin });
+  pin = union ? { x: union.x, y: union.y } : { x: (view.map.bounds.x0 + view.map.bounds.x1) / 2, y: (view.map.bounds.y0 + view.map.bounds.y1) / 2 };
+  view.set({ pin });
   renderNearby();
-  view.focusAt(start.x, start.y, 0.9);
+  view.focusAt(pin.x, pin.y, 0.9);
 
-  const wanted = new URLSearchParams(location.search).get('station');
-  if (wanted && net.stationsById[wanted]) openStation(net.stationsById[wanted]);
+  const q = new URLSearchParams(location.search);
+  if (q.get('line') && net.linesById[q.get('line')]) openLine(q.get('line'));
+  else if (q.get('station') && net.stationsById[q.get('station')]) openStation(net.stationsById[q.get('station')]);
 
   setInterval(async () => {
     if (document.hidden) return;
     try {
       await refreshVehicles(net); view.render();
-      if (SHOW_LIVE_ON_MAP) { renderNearby(); if (openId != null) paintPopup(net.stationsById[openId]); }
+      if (mode === 'nearby') renderNearby(true); else if (lineCtl) lineCtl.refresh();
+      if (openId != null) paintPopup(net.stationsById[openId]);
     } catch { /* keep last good data */ }
   }, 15000);
 }
