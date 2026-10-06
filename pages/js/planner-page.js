@@ -2,6 +2,7 @@
 //   search  – pick start / destination (inline suggestions)          [Transit screenshot 2]
 //   options – mode tabs (fastest / fewest transfers / least walking)   [screenshot 3]
 //   detail  – route guide: summary, LIVE arrivals, all steps           [screenshots 4–5]
+//   vehicle – tap the live vehicle: "N stops away", next stop, GO     [Transit vehicle sheet, before GO]
 //   nav     – one step at a time, "Next step" … "Finish"
 //   done    – "Journey complete"
 // Live arrivals appear only here (bus.png / trains.png icons on a black chip).
@@ -9,7 +10,8 @@ import { api, Auth, loadNetwork } from './api.js';
 import { MODES } from './config.js';
 import { mountChrome, $, esc, lineBadge, safeColor, Tabs, toast, fmtMin, fmtMiles, fmtClock, ICON, liveIcon } from './ui.js';
 import { MapView } from './mapview.js';
-import { departures } from './arrivals.js';
+import { departures, trackedVehicle } from './arrivals.js';
+import { renderLineScreen } from './linescreen.js';
 
 mountChrome('plan');
 
@@ -68,19 +70,37 @@ function setView(v) { S.view = v; app.dataset.view = v; render(); }
 function render() {
   const r = route();
   $('#headTitle').textContent = S.from && S.to ? `${S.from.name} → ${S.to.name}` : '';
-  ({ search: renderSearch, options: renderOptions, detail: renderDetail, nav: renderNav, done: renderDone })[S.view]();
+  ({ search: renderSearch, options: renderOptions, detail: renderDetail, vehicle: renderVehicle, nav: renderNav, done: renderDone })[S.view]();
   requestAnimationFrame(mapSync);
 }
 
 const insets = () => wide() ? { top: 20, right: 110, bottom: 20, left: 20 }
-  : { top: 20, right: 10, bottom: ['detail', 'nav'].includes(S.view) ? side.offsetHeight + 10 : 10, left: 10 };
+  : { top: 20, right: 10, bottom: ['detail', 'nav', 'vehicle'].includes(S.view) ? side.offsetHeight + 10 : 10, left: 10 };
 
+function trackedFor(leg) {
+  if (!leg || leg.type !== 'ride') return null;
+  const tv = trackedVehicle(leg, net);
+  if (!tv) return null;
+  const ln = lineOf(leg.line_id);
+  return { x: tv.v.x, y: tv.v.y, type: ln.type, color: ln.color, minutes: tv.minutes };
+}
 function mapSync() {
   if (!view) return;
   const r = route();
-  if (S.view === 'search' || !r || !r.found) { view.set({ route: null, activeLeg: null }); return; }
-  if (S.view === 'nav') { view.set({ route: r, activeLeg: S.step }); view.fitLeg(r.legs[S.step]); }
-  else { view.set({ route: r, activeLeg: null }); view.fitRoute(r); }
+  if (S.view === 'search' || !r || !r.found) { view.set({ route: null, activeLeg: null, tracked: null }); return; }
+  if (S.view === 'vehicle') {
+    const b = boardInfo(r), t = b && trackedFor(b.leg);
+    view.set({ route: r, activeLeg: null, tracked: t });
+    view._focus = null;
+    if (b) view.map.fit([...(t ? [[t.x, t.y]] : []), [b.leg.from.x, b.leg.from.y]], { maxScale: 1.6, pad: 70, minBox: 220 });
+    return;
+  }
+  if (S.view === 'nav') {
+    const leg = r.legs[S.step], t = trackedFor(leg);
+    view.set({ route: r, activeLeg: S.step, tracked: t });
+    view._focus = null;
+    view.map.fit([...leg.points, ...(t ? [[t.x, t.y]] : [])], { maxScale: 1.8, pad: 70 });
+  } else { view.set({ route: r, activeLeg: null, tracked: null }); view.fitRoute(r); }
 }
 
 // ── search ──
@@ -127,7 +147,7 @@ $('#swapBtn').onclick = () => {
 };
 $('#clearBtn').onclick = () => { S.from = S.to = S.plan = null; inputs.from.value = inputs.to.value = ''; syncUrl(); S.field = 'from'; setView('search'); inputs.from.focus(); };
 $('#refreshBtn').onclick = () => planTrip();
-$('#backBtn').onclick = () => setView({ detail: 'options', nav: 'detail', done: 'options' }[S.view] || 'options');
+$('#backBtn').onclick = () => setView({ detail: 'options', nav: 'detail', done: 'options', vehicle: 'detail' }[S.view] || 'options');
 
 // ── plan ──
 async function planTrip() {
@@ -204,14 +224,16 @@ function renderDetail() {
     const ln = lineOf(l.line_id), n = l.stops.length - 1;
     const wt = rides++ > 0 ? `<li class="wait-note">Transfer — allow about ${fmtMin(wait)} to board</li>` : '';
     return `${wt}<li class="step ride" style="--c:${safeColor(ln.color)}">
-      <div class="step-line">${lineBadge(ln, 'lg')}<div><strong>${ICON.arrow.replace('width="20" height="20"', 'width="16" height="16"')} ${esc(l.headsign)}</strong><small>${esc(ln.name)}</small></div></div>
+      <div class="step-line tap" role="button" tabindex="0" data-line="${esc(ln.id)}" data-station="${l.from.id}" aria-label="Open ${esc(ln.name)}">${lineBadge(ln, 'lg')}<div><strong>${ICON.arrow.replace('width="20" height="20"', 'width="16" height="16"')} ${esc(l.headsign)}</strong><small>${esc(ln.name)}</small></div></div>
       <div class="stop-row"><span>${esc(l.from.name)}</span><span>${fmtClock(t.start)}</span></div>
       <details><summary>${n} stop${n === 1 ? '' : 's'}</summary><ol class="stoplist" style="--c:${safeColor(ln.color)}">${l.stops.slice(1, -1).map(s => `<li>${esc(s.name)}</li>`).join('') || '<li class="muted">Non-stop</li>'}</ol></details>
       <div class="stop-row"><span>${esc(l.to.name)}</span><span>${fmtClock(t.end)}</span></div></li>`;
   }).join('');
 
   const tiles = b && b.etas.length
-    ? `<div class="tiles">${b.etas.slice(0, 4).map((m, i) => `<div class="tile${i ? '' : ' first'}">${i ? '' : liveIcon(b.line.type)}<b>${m}</b><span class="u">minutes</span></div>`).join('')}</div>`
+    ? `<div class="tiles">${b.etas.slice(0, 4).map((m, i) => i
+        ? `<div class="tile"><b>${m}</b><span class="u">minutes</span></div>`
+        : `<button class="tile first" id="vehTile" aria-label="View the vehicle">${liveIcon(b.line.type)}<b>${m}</b><span class="u">minutes</span><span class="tap">View vehicle</span></button>`).join('')}</div>`
     : '<p class="muted">No live vehicles are heading to this stop right now — times are estimates.</p>';
 
   body.innerHTML = `
@@ -228,6 +250,8 @@ function renderDetail() {
   foot.innerHTML = `<button class="btn-sec" id="saveBtn">Save</button><button class="btn-sec" id="shareBtn">Share</button><button class="btn-go" id="goBtn">GO</button>`;
   $('#goBtn').onclick = () => { S.step = 0; side.dataset.state = 'peek'; setView('nav'); };
   $('#saveBtn').onclick = saveJourney; $('#shareBtn').onclick = share;
+  const vt = $('#vehTile'); if (vt) vt.onclick = () => setView('vehicle');
+  bindLineTaps();
 }
 
 // ── step-by-step ──
@@ -246,12 +270,11 @@ function renderNav() {
   } else {
     const ln = lineOf(l.line_id), stops = l.stops.length - 1, first = r.legs.findIndex(x => x.type === 'ride') === i;
     const b = first ? boardInfo(r) : null;
-    card = `<div class="nav-card ride" style="--c:${safeColor(ln.color)}"><div class="nav-ic">${lineBadge(ln, 'xl')}<span class="nav-step-label">${esc(ln.name)}</span></div>
+    card = `<div class="nav-card ride" style="--c:${safeColor(ln.color)}"><div class="nav-ic tap" role="button" tabindex="0" data-line="${esc(ln.id)}" data-station="${l.from.id}" aria-label="Open ${esc(ln.name)}">${lineBadge(ln, 'xl')}<span class="nav-step-label">${esc(ln.name)}</span></div>
       <h2>Board toward ${esc(l.headsign)}</h2>
       <p class="sub">${esc(l.from.name)} → ${esc(l.to.name)}</p>
-      ${first
-        ? (b && b.etas.length ? `<p class="rc-go">Next vehicle in <b>${b.etas[0]} min</b> ${liveIcon(ln.type)}</p>` : '<p class="muted">No live vehicle reported — follow the posted schedule.</p>')
-        : `<p class="muted">Allow about ${fmtMin(net.settings.transfer_penalty_sec)} to board.</p>`}
+      ${vehicleBlock(l, 'riding', tm)}
+      ${first ? '' : `<p class="muted">Allow about ${fmtMin(net.settings.transfer_penalty_sec)} to board.</p>`}
       <div class="stop-row"><span>Board · ${esc(l.from.name)}</span><span>${fmtClock(t.start)}</span></div>
       <details><summary>${stops} stop${stops === 1 ? '' : 's'} on this ride</summary><ol class="stoplist" style="--c:${safeColor(ln.color)}">${l.stops.slice(1, -1).map(s => `<li>${esc(s.name)}</li>`).join('') || '<li class="muted">Non-stop</li>'}</ol></details>
       <div class="stop-row"><span>Get off · ${esc(l.to.name)}</span><span>${fmtClock(t.end)}</span></div></div>`;
@@ -265,7 +288,66 @@ function renderNav() {
   foot.innerHTML = `<button class="btn-sec" id="prevBtn">${i === 0 ? 'Overview' : 'Back'}</button><button class="btn-go" id="nextBtn">${last ? 'Finish' : 'Next step'}</button>`;
   $('#prevBtn').onclick = () => { if (i === 0) setView('detail'); else { S.step = i - 1; render(); } };
   $('#nextBtn').onclick = () => { if (last) setView('done'); else { S.step = i + 1; render(); } };
+  bindLineTaps();
   S.step = i;
+}
+
+// ── vehicle sheet: before GO ("preview") and while riding ──
+const ago = sec => sec == null ? 'live' : sec < 90 ? `${sec} second${sec === 1 ? '' : 's'} ago` : `${Math.round(sec / 60)} minutes ago`;
+function vehicleBlock(leg, mode, tm) {
+  const ln = lineOf(leg.line_id), color = safeColor(ln.color, '#111827'), tv = trackedVehicle(leg, net);
+  const kind = ln.type === 'rail' ? 'train' : 'bus';
+  const big = ln.image_url || ln.type === 'rail' ? lineBadge(ln, 'xxl') : `<span class="veh-num">${esc(ln.id)}</span>`;
+  if (!tv) return `<div class="veh" style="--c:${color}"><div class="veh-top">${big}</div>
+    <p class="veh-dir">${ICON.arrow}<span>${esc(leg.headsign)}</span></p>
+    <p class="veh-none">No live ${kind} reported yet — showing estimated times.</p></div>`;
+  const status = String(tv.v.status || 'in_service').replace(/_/g, ' ');
+  const name = tv.v.vehicle_label ? `${kind === 'bus' ? 'Bus' : 'Train'} ${tv.v.vehicle_label}` : `Vehicle ${tv.v.id}`;
+  return `<div class="veh" style="--c:${color}">
+    ${mode === 'riding' ? `<div class="veh-arrive"><small>ARRIVE AT</small><b>${fmtClock(tm.arriveAt)}${liveIcon(ln.type)}</b></div>` : ''}
+    <div class="veh-top">${big}<span class="veh-op"><img src="img/logo.png" alt="">City Metro</span></div>
+    <p class="veh-dir">${ICON.arrow}<span>${esc(leg.headsign)}</span></p>
+    <div class="veh-main"><strong>${tv.stops} stop${tv.stops === 1 ? '' : 's'} away</strong>
+      <span class="veh-min">${liveIcon(ln.type)}<b>${tv.minutes}</b><small>min</small></span></div>
+    <p class="veh-at">${tv.atStop ? 'At stop' : 'Next stop'}: ${esc(tv.nextName)}</p>
+    <div class="veh-chips">
+      <div class="vchip"><span class="dots"><i></i><i></i><i></i><i></i><i></i><i></i></span><span>Crowding unknown</span></div>
+      <div class="vchip"><span class="ok">${ICON.check}</span><span>${esc(status.charAt(0).toUpperCase() + status.slice(1))}</span></div></div>
+    <p class="veh-upd">${esc(name)}. Updated ${ago(tv.ageSec)} by City Metro.</p></div>`;
+}
+
+function renderVehicle() {
+  const r = route();
+  if (!r || !r.found) return setView('options');
+  const b = boardInfo(r);
+  if (!b) return setView('detail');
+  body.innerHTML = vehicleBlock(b.leg, 'preview', timing(r)) +
+    `<p class="veh-follow">Tap <span class="go-pill">GO</span> to follow this ${b.line.type === 'rail' ? 'train' : 'bus'} on your trip</p>`;
+  foot.innerHTML = `<button class="btn-sec" id="vBack">Back</button><button class="btn-go" id="goBtn">GO</button>`;
+  $('#vBack').onclick = () => setView('detail');
+  $('#goBtn').onclick = () => { S.step = 0; side.dataset.state = 'peek'; setView('nav'); };
+}
+
+// ── a line's own menu, opened from any ride in the guide ──
+let lineCtl = null;
+function closeLineOverlay() { const ov = $('#lineOverlay'); if (ov) ov.hidden = true; if (lineCtl) { lineCtl.destroy(); lineCtl = null; } }
+function openLineOverlay(lineId, stationId = null) {
+  let ov = $('#lineOverlay');
+  if (!ov) {
+    document.body.insertAdjacentHTML('beforeend', '<div class="overlay" id="lineOverlay" hidden><div class="dialog ls-dialog" id="lineDialog" role="dialog" aria-modal="true"></div></div>');
+    ov = $('#lineOverlay');
+    ov.addEventListener('click', e => { if (e.target === ov) closeLineOverlay(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLineOverlay(); });
+  }
+  if (lineCtl) lineCtl.destroy();
+  lineCtl = renderLineScreen($('#lineDialog'), { net, lineId, stationId, backLabel: 'Close', onBack: closeLineOverlay, onStation: () => {} });
+  ov.hidden = false;
+}
+function bindLineTaps() {
+  body.querySelectorAll('[data-line]').forEach(el => {
+    const go = () => openLineOverlay(el.dataset.line, el.dataset.station ? +el.dataset.station : null);
+    el.onclick = go; el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+  });
 }
 
 // ── journey complete ──
@@ -324,7 +406,7 @@ $('#sideHandle').onclick = () => { side.dataset.state = side.dataset.state === '
   else { S.field = S.from ? 'to' : 'from'; render(); if (innerWidth >= 900 || S.from) inputs[S.field].focus({ preventScroll: true }); }
 
   setInterval(async () => { /* keep live arrivals fresh while the guide is open */
-    if (document.hidden || !['options', 'detail', 'nav'].includes(S.view) || !S.plan) return;
+    if (document.hidden || !['options', 'detail', 'vehicle', 'nav'].includes(S.view) || !S.plan) return;
     try { const { refreshVehicles } = await import('./api.js'); await refreshVehicles(net); S.t0 = Date.now(); render(); } catch { /* keep last good data */ }
   }, 15000);
 })();
