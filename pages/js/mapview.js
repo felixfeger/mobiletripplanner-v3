@@ -13,6 +13,7 @@ export class MapView {
     this.showWalkLinks = showWalkLinks;    // dashed walking links between nearby stations (off on index.html)
     this.route = null; this.activeLeg = null; this.pin = null;
     this.selectedId = null; this.focusLine = null; this._focus = null; this.tracked = null; this._icons = {};
+    this.vehicleLines = null;               // null = every vehicle · Set of line ids = only those lines (used with an active route / line menu)
     this.onStation = onStation; this.onVehicle = onVehicle; this.onEmpty = onEmpty;
     this.map = new CanvasMap(wrap, canvas, { insets, onDraw: (c, m) => this.draw(c, m), onTap: (w, s) => this.tap(w, s) });
     this.map.setBounds(this.bounds());
@@ -40,10 +41,17 @@ export class MapView {
   focusAt(x, y, scale = 1.1) { this._focus = { x, y }; this.map.centerOn(x, y, scale); }
   focusStation(s, scale = 1.3) { this.selectedId = s.id; this.focusAt(s.x, s.y, scale); }
 
+  // Vehicles currently drawn (and tappable). With a route active only the chosen lines' vehicles show.
+  visibleVehicles() {
+    if (!this.showVehicles) return [];
+    if (this.route && !this.vehicleLines) return [];
+    return (this.net.vehicles || []).filter(v => (!this.vehicleLines || this.vehicleLines.has(v.line_id)) && (!this.focusLine || this.focusLine === v.line_id));
+  }
+
   tap(world, screen) {
     const { map, net } = this;
     const near = (x, y, px) => Math.hypot((x - world.x) * map.scale, (y - world.y) * map.scale) <= px;
-    if (this.showVehicles) for (const v of net.vehicles || []) if (near(v.x, v.y, 18)) return this.onVehicle && this.onVehicle(v);
+    for (const v of this.visibleVehicles()) if (near(v.x, v.y, 18)) return this.onVehicle && this.onVehicle(v);
     let best = null, bd = Infinity;
     for (const s of net.stations) {
       const d = Math.hypot((s.x - world.x) * map.scale, (s.y - world.y) * map.scale);
@@ -103,12 +111,7 @@ export class MapView {
     }
     ctx.globalAlpha = 1;
 
-    if (!route && this.showVehicles) {
-      for (const v of net.vehicles || []) {
-        if (focusLine && focusLine !== v.line_id) continue;
-        this.drawVehicle(ctx, v, k);
-      }
-    }
+    for (const v of this.visibleVehicles()) this.drawVehicle(ctx, v, k);
     if (this.pin) {
       ctx.beginPath(); ctx.arc(this.pin.x, this.pin.y, 17 * k, 0, Math.PI * 2); ctx.fillStyle = 'rgba(29,78,216,.2)'; ctx.fill();
       ctx.beginPath(); ctx.arc(this.pin.x, this.pin.y, 8 * k, 0, Math.PI * 2); ctx.fillStyle = '#1d4ed8'; ctx.fill();
