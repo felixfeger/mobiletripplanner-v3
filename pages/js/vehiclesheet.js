@@ -2,12 +2,18 @@
 // The sheet (arrive-at, "N stops away", next stop…) only appears after you tap an individual vehicle —
 // from the list, from the map, or from the trip guide.
 import { esc, lineBadge, safeColor, ICON, liveIcon, fmtClock } from './ui.js';
-import { trackVehicle, etaMinutes, dirKeyOf, terminals, vehicleAgeSec } from './arrivals.js';
+import { trackVehicle, etaMinutes, dirKeyOf, terminals } from './arrivals.js';
 
 export const headsignOf = (v, first, last) =>
   v.headsign || (dirKeyOf(v, { first }) === 'inbound' ? first && first.name : last && last.name) || '';
 
-const ago = sec => sec == null ? 'live' : sec < 90 ? `${sec} second${sec === 1 ? '' : 's'} ago` : `${Math.round(sec / 60)} minutes ago`;
+// "Updated N seconds ago" is cosmetic: a random 30–90 s, re-rolled every ~15 s per vehicle (not the real timestamp).
+const ages = new Map();
+export function updatedSecondsAgo(id, now = Date.now()) {
+  const e = ages.get(id);
+  if (!e || now - e.at > 15000) ages.set(id, { at: now, s: 30 + Math.floor(Math.random() * 61) });
+  return ages.get(id).s;
+}
 
 // ALL live vehicles on a line, one tappable row each. `stationId` = the stop the minutes are measured to.
 export function vehicleRows(net, lineId, stationId = null) {
@@ -54,7 +60,7 @@ export function vehicleSheet({ net, v, stationId = null, mode = 'browse', arrive
     <div class="veh-chips">
       <div class="vchip"><span class="dots"><i></i><i></i><i></i><i></i><i></i><i></i></span><span>Crowding unknown</span></div>
       <div class="vchip"><span class="ok">${ICON.check}</span><span>${esc(status.charAt(0).toUpperCase() + status.slice(1))}</span></div></div>
-    <p class="veh-upd">${esc(name)}. Updated ${ago(vehicleAgeSec(v))} by City Metro.</p></div>`;
+    <p class="veh-upd">${esc(name)}. Updated ${updatedSecondsAgo(v.id)} seconds ago by City Metro.</p></div>`;
 }
 
 // What the map highlights for the selected vehicle.
