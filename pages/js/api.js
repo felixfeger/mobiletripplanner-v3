@@ -5,6 +5,10 @@ export const Auth = {
   user() { try { return JSON.parse(localStorage.getItem('cm_user')); } catch { return null; } },
   set(token, user) { localStorage.setItem('cm_token', token); localStorage.setItem('cm_user', JSON.stringify(user)); },
   clear() { localStorage.removeItem('cm_token'); localStorage.removeItem('cm_user'); },
+  // Sign in with Authentik: the Worker starts the OAuth flow and brings you back through /auth-callback.html
+  login(returnTo = location.pathname + location.search) {
+    location.href = `${API_BASE}/api/auth/login?site=${encodeURIComponent(location.origin)}&return=${encodeURIComponent(returnTo)}`;
+  },
   get loggedIn() { return !!this.token(); }
 };
 
