@@ -2,6 +2,7 @@
 // the "you are here" pin, and a highlighted route (optionally with one active leg).
 import { CanvasMap } from './canvas.js';
 import { safeColor } from './ui.js';
+import { VEHICLE_ICONS } from './config.js';
 
 const FONT = '"Helvetica Neue", Helvetica, Arial, sans-serif';
 const STATION_R = { hub: 9, station: 7, stop: 4.5 };
@@ -121,9 +122,11 @@ export class MapView {
 
   icon(type) {
     if (!this._icons[type]) {
-      const img = new Image();
-      img.onload = () => this.map.render(); img.onerror = () => { img._bad = true; };
-      img.src = type === 'rail' ? 'img/trains.png' : 'img/bus.png';
+      const srcs = VEHICLE_ICONS[type === 'rail' ? 'rail' : 'bus'], img = new Image();
+      let i = 0;
+      img.onload = () => this.map.render();
+      img.onerror = () => { if (++i < srcs.length) img.src = srcs[i]; else { img._bad = true; this.map.render(); } };   // next file name, else text fallback
+      img.src = srcs[0];
       this._icons[type] = img;
     }
     return this._icons[type];
