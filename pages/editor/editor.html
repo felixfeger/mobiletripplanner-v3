@@ -43,24 +43,8 @@ body,html{height:100%;overflow:hidden;}
     </div>
     <div class="login-body">
       <div id="loginForm">
-        <div class="login-tabs">
-          <button class="login-tab active" id="tabLogin">Sign in</button>
-          <button class="login-tab" id="tabSignup">Sign up</button>
-        </div>
-        <div id="loginError" class="login-error"></div>
-        <div class="form-field hidden" id="nameField">
-          <label>Name</label>
-          <input type="text" id="authName" placeholder="Your name" autocomplete="name">
-        </div>
-        <div class="form-field">
-          <label>Email</label>
-          <input type="email" id="authEmail" placeholder="you@example.com" autocomplete="email">
-        </div>
-        <div class="form-field">
-          <label>Password</label>
-          <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password">
-        </div>
-        <button class="btn-black" id="authBtn">Sign in</button>
+        <p style="font-size:.85rem;color:var(--gray);margin-bottom:1rem;line-height:1.5">Sign in with your City Metro account to save journeys and use them on any device.</p>
+        <button class="btn-black" id="ssoBtn">Sign in with City Metro</button>
       </div>
       <div id="userView" class="hidden">
         <div class="login-user-name" id="userName"></div>
