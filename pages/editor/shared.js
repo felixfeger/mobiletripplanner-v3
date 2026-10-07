@@ -10,6 +10,10 @@ const Auth = {
     localStorage.setItem('cm_user', JSON.stringify(user));
   },
   clear() { localStorage.removeItem('cm_token'); localStorage.removeItem('cm_user'); },
+  // Sign in with Authentik: the Worker starts the OAuth flow and brings you back through /auth-callback.html
+  login(returnTo) {
+    location.href = `${API}/api/auth/login?site=${encodeURIComponent(location.origin)}&return=${encodeURIComponent(returnTo || (location.pathname + location.search))}`;
+  },
   isLoggedIn() { return !!this.getToken(); }
 };
 
@@ -125,46 +129,7 @@ function loadJourney(j) {
 }
 
 function initLoginForms() {
-  let mode = 'login';
-  document.getElementById('tabLogin')?.addEventListener('click', () => {
-    mode='login';
-    document.getElementById('tabLogin').classList.add('active');
-    document.getElementById('tabSignup').classList.remove('active');
-    document.getElementById('nameField')?.classList.add('hidden');
-    document.getElementById('authBtn').textContent='Sign in';
-    document.getElementById('loginError').textContent='';
-  });
-  document.getElementById('tabSignup')?.addEventListener('click', () => {
-    mode='signup';
-    document.getElementById('tabSignup').classList.add('active');
-    document.getElementById('tabLogin').classList.remove('active');
-    document.getElementById('nameField')?.classList.remove('hidden');
-    document.getElementById('authBtn').textContent='Create account';
-    document.getElementById('loginError').textContent='';
-  });
-  document.getElementById('authBtn')?.addEventListener('click', async () => {
-    const email = document.getElementById('authEmail').value.trim();
-    const password = document.getElementById('authPassword').value;
-    const errEl = document.getElementById('loginError');
-    errEl.textContent='';
-    if (!email||!password) { errEl.textContent='Please fill all fields.'; return; }
-    const btn = document.getElementById('authBtn');
-    btn.textContent='...'; btn.disabled=true;
-    try {
-      let data;
-      if (mode==='signup') {
-        const name = document.getElementById('authName').value.trim();
-        if (!name) { errEl.textContent='Name required.'; btn.textContent='Create account'; btn.disabled=false; return; }
-        data = await apiFetch('/api/auth/signup',{method:'POST',body:JSON.stringify({email,name,password})});
-      } else {
-        data = await apiFetch('/api/auth/login',{method:'POST',body:JSON.stringify({email,password})});
-      }
-      Auth.setSession(data.token,data.user);
-      renderLoginState();
-      toast(`Welcome, ${data.user.name}!`);
-    } catch(e) { errEl.textContent=e.message; }
-    finally { btn.textContent = mode==='login'?'Sign in':'Create account'; btn.disabled=false; }
-  });
+  document.getElementById('ssoBtn')?.addEventListener('click', () => Auth.login());
   document.getElementById('logoutBtn')?.addEventListener('click', () => { Auth.clear(); renderLoginState(); toast('Signed out'); });
   document.getElementById('loginOverlay')?.addEventListener('click', e => {
     if (e.target === e.currentTarget) document.getElementById('loginOverlay').classList.remove('open');
@@ -611,3 +576,4 @@ function drawVehicleMarker(ctx, x, y, lineType, radius) {
 
   ctx.restore();
 }
+
