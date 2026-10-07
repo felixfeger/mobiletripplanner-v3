@@ -289,30 +289,32 @@ button { cursor: pointer; background: none; border: 0; text-align: inherit; }
 .ls-dialog { width: min(100%, 520px); height: 90vh; max-height: 90vh; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 .ls-dialog .ls { flex: 1; overflow-y: auto; }
 
-/* ── vehicle sheet (before GO: preview · after GO: riding) ── */
-.veh { padding: 12px 18px 4px; }
-.veh-arrive { display: grid; justify-items: center; gap: 2px; margin: 4px auto 14px; padding: 10px 24px; border-radius: 22px; background: var(--surface-2); width: max-content; max-width: 100%; }
-.veh-arrive small { font-weight: 700; color: var(--ink-2); letter-spacing: .08em; }
-.veh-arrive b { display: inline-flex; align-items: center; gap: 8px; font-size: 2.3rem; letter-spacing: -.03em; color: var(--c); line-height: 1.1; }
-.veh-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.veh-num { font-size: 4.6rem; font-weight: 700; letter-spacing: -.05em; line-height: .9; color: var(--c); }
-.veh-op { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1.1rem; } .veh-op img { width: 30px; height: 30px; border-radius: 50%; }
+/* ── vehicle sheet (before GO: preview · after GO: riding) — modelled on the Transit vehicle popup ── */
+.veh { padding: 20px 22px 6px; }
+.veh-top { margin-bottom: 6px; }
+.veh-num { display: block; font-size: 3.6rem; font-weight: 700; letter-spacing: -.04em; line-height: 1; color: var(--c); }
 .veh-dir { display: flex; align-items: center; gap: .6rem; margin: 8px 0 2px; font-size: 1.5rem; font-weight: 700; color: var(--c); line-height: 1.2; }
-.veh-dir svg { width: 28px; height: 28px; flex: none; padding: 6px; border-radius: 50%; background: var(--c); color: #fff; }
-.veh-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: 8px; }
-.veh-main strong { font-size: 2.5rem; letter-spacing: -.03em; line-height: 1.05; color: var(--c); }
-.veh-min { position: relative; display: inline-flex; align-items: flex-end; gap: 6px; color: var(--c); padding-top: 14px; }
-.veh-min b { font-size: 3.4rem; line-height: .9; letter-spacing: -.04em; } .veh-min small { font-weight: 700; font-size: 1rem; padding-bottom: 6px; }
-.veh-min .live-ic { position: absolute; top: -4px; right: 0; }
-.veh-at { font-size: 1.2rem; font-weight: 700; color: var(--ink-2); margin: 6px 0 14px; }
-.veh-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.vchip { display: grid; justify-items: center; gap: 8px; padding: 16px 8px; border-radius: 16px; background: var(--surface-2); color: var(--muted); font-weight: 700; text-align: center; }
-.vchip .dots { display: grid; grid-template-columns: repeat(3, 10px); gap: 4px; } .vchip .dots i { width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; }
-.vchip .ok { width: 36px; height: 36px; border-radius: 10px; background: var(--c); color: #fff; display: grid; place-items: center; }
-.veh-upd { text-align: center; color: var(--muted); margin: 14px 0 4px; font-size: .92rem; }
+.veh-dir svg { width: 30px; height: 30px; flex: none; padding: 7px; border-radius: 50%; background: var(--c); color: #fff; }
+.veh-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: 18px; }
+.veh-main strong { font-size: 2.3rem; letter-spacing: -.03em; line-height: 1.05; color: var(--c); }
+.veh-min { position: relative; display: inline-flex; align-items: flex-end; gap: 5px; color: var(--c); padding-top: 12px; }
+.veh-min b { font-size: 3rem; line-height: .9; letter-spacing: -.04em; } .veh-min small { font-weight: 700; font-size: 1rem; padding-bottom: 4px; }
+.veh-min .live-ic { position: absolute; top: -6px; right: 2px; }
+.veh-at { font-size: 1.3rem; font-weight: 700; color: var(--ink-2); margin: 8px 0 18px; }
+.veh-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.vchip { display: grid; justify-items: center; align-content: center; gap: 10px; min-height: 108px; padding: 18px 8px; border-radius: 20px; background: #eef1f5; color: #94a3b8; font-weight: 700; font-size: 1.05rem; text-align: center; }
+.vchip .dots { display: grid; grid-template-columns: repeat(3, 12px); gap: 5px; } .vchip .dots i { width: 12px; height: 12px; border-radius: 50%; background: #c3cad5; }
+.vchip.access { color: #3f6f77; }
+.vchip .ok { width: 42px; height: 42px; border-radius: 12px; background: #3f6f77; color: #fff; display: grid; place-items: center; } .vchip .ok svg { width: 26px; height: 26px; }
+.veh-upd { text-align: center; color: #64748b; margin: 16px 0 6px; font-size: .95rem; }
+.veh-sub { color: var(--muted); font-size: .85rem; margin: -12px 0 14px; }
 .veh-none { padding: 1rem 0; color: var(--muted); text-align: center; }
-.veh-follow { margin: 14px 18px; padding-top: 14px; border-top: 1px solid var(--line); text-align: center; color: var(--ink-2); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: .9rem; }
-.go-pill { display: inline-block; padding: 2px 9px; border-radius: 8px; background: var(--black); color: #fff; font-style: italic; }
+.veh-follow { margin: 18px 22px 8px; padding-top: 16px; border-top: 1px solid var(--line); display: grid; justify-items: center; gap: 8px; text-align: center; color: #5b7077; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; font-size: 1.15rem; }
+.veh-follow p { margin: 0; } .veh-pilot { font-size: 4.2rem; line-height: 1.1; }
+.go-pill { display: inline-block; padding: 1px 9px; border-radius: 8px; background: var(--black); color: #fff; font-style: italic; }
+.arrive-float { width: max-content; max-width: calc(100% - 140px); white-space: nowrap; position: absolute; z-index: 45; top: 14px; left: 50%; transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; padding: 10px 26px 12px; border-radius: 24px; background: rgba(255,255,255,.94); box-shadow: var(--shadow); }
+.arrive-float small { font-weight: 700; color: var(--ink-2); letter-spacing: .08em; font-size: .95rem; }
+.arrive-float b { display: inline-flex; align-items: center; gap: 8px; font-size: 2.4rem; letter-spacing: -.03em; line-height: 1.1; }
 button.tile { cursor: pointer; } .tile .tap { display: block; font-size: .68rem; color: #a3a3a3; margin-top: 2px; }
 .step-line.tap, .nav-ic.tap { cursor: pointer; width: 100%; text-align: left; }
 
