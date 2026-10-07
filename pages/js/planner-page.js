@@ -5,7 +5,7 @@
 //   vehicle – tap ONE live vehicle (list or map): "N stops away", next stop, GO / ARRIVE AT  [vehicle sheet]
 //   nav     – one step at a time, "Next step" … "Finish"
 //   done    – "Journey complete"
-// Live arrivals appear only here (bus.png / trains.png icons on a black chip).
+// Live arrivals appear only here (img/bus.png / img/train.png icons on a black chip).
 import { api, Auth, loadNetwork } from './api.js';
 import { MODES } from './config.js';
 import { mountChrome, $, esc, lineBadge, safeColor, Tabs, toast, fmtMin, fmtMiles, fmtClock, ICON, liveIcon } from './ui.js';
