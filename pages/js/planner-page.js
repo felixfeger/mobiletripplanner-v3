@@ -68,8 +68,11 @@ function timing(r) {
 // ── view switching ──
 function setView(v) { S.view = v; app.dataset.view = v; render(); }
 
+let lastView = null;
 function render() {
   const r = route();
+  if (S.view !== lastView) { body.scrollTop = 0; lastView = S.view; }   // a new screen always starts at its top
+  $('#arriveFloat').hidden = true;                 // only the riding vehicle sheet shows it
   $('#headTitle').textContent = S.from && S.to ? `${S.from.name} → ${S.to.name}` : '';
   ({ search: renderSearch, options: renderOptions, detail: renderDetail, vehicle: renderVehicle, nav: renderNav, done: renderDone })[S.view]();
   requestAnimationFrame(mapSync);
@@ -314,8 +317,14 @@ function renderVehicle() {
   const v = vehicleById(S.vehId);
   if (!v) return setView(S.vehBack || 'detail');
   const kind = lineOf(v.line_id).type === 'rail' ? 'train' : 'bus';
-  body.innerHTML = vehicleSheet({ net, v, stationId: S.vehStation, mode: S.vehMode, arriveAt: timing(r).arriveAt }) +
-    (S.vehMode === 'preview' ? `<p class="veh-follow">Tap <span class="go-pill">GO</span> to follow this ${kind} on your trip</p>` : '');
+  body.innerHTML = vehicleSheet({ net, v, stationId: S.vehStation, mode: S.vehMode }) +
+    `<div class="veh-follow"><span class="veh-pilot" aria-hidden="true">🧑‍✈️</span>${S.vehMode === 'preview'
+      ? `<p>Tap <span class="go-pill">GO</span> to follow this ${kind}</p>` : `<p>You're following this ${kind}</p>`}</div>`;
+  if (S.vehMode === 'riding') {   // like the Transit app: ARRIVE AT floats over the map
+    const af = $('#arriveFloat');
+    af.innerHTML = `<small>ARRIVE AT</small><b>${fmtClock(timing(r).arriveAt)}${liveIcon(lineOf(v.line_id).type)}</b>`;
+    af.hidden = false;
+  }
   if (S.vehMode === 'preview') {
     foot.innerHTML = `<button class="btn-sec" id="vBack">Back</button><button class="btn-go" id="goBtn">GO</button>`;
     $('#goBtn').onclick = () => { S.step = 0; side.dataset.state = 'peek'; setView('nav'); };
