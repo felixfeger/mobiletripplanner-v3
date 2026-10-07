@@ -1,5 +1,6 @@
 // Shared UI: helpers, icons, the Tabs component, and the page chrome (navbar, hamburger menu, account).
 import { api, Auth } from './api.js';
+import { AUTH_ORIGIN, VEHICLE_ICONS } from './config.js';
 
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -33,16 +34,16 @@ export const ICON = {
   stop: svg('<rect x="4" y="4" width="16" height="13" rx="3"/><path d="M4 11h16M7 17v3M17 17v3"/>')
 };
 
-// ── Live-arrival icon: bus.png for buses, trains.png for rail (white PNGs) on a black chip ──
+// ── Live-vehicle icon: img/bus.png for buses, img/train.png for rail (white PNGs) on a black chip ──
 const SIGNAL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 12a7 7 0 0 1 7-7M5 5.5A13.5 13.5 0 0 1 18.5 19"/><circle cx="6" cy="18" r="1.2" fill="#fff"/></svg>';
 window.__liveFallback = img => {
-  if (!img.dataset.tried && /trains\.png/.test(img.src)) { img.dataset.tried = '1'; img.src = 'img/train.png'; return; }
-  const wrap = img.parentElement;
-  if (wrap) wrap.innerHTML = SIGNAL;
+  const list = (img.dataset.srcs || '').split('|').filter(Boolean), i = (+img.dataset.i || 0) + 1;
+  if (i < list.length) { img.dataset.i = i; img.src = list[i]; return; }           // try the next file name
+  if (img.parentElement) img.parentElement.innerHTML = SIGNAL;                       // no icon file at all
 };
 export function liveIcon(type) {
-  const src = type === 'rail' ? 'img/trains.png' : 'img/bus.png';
-  return `<span class="live-ic" aria-hidden="true"><img src="${src}" alt="" onerror="window.__liveFallback(this)"></span>`;
+  const list = VEHICLE_ICONS[type === 'rail' ? 'rail' : 'bus'];
+  return `<span class="live-ic" aria-hidden="true"><img src="${list[0]}" data-srcs="${list.join('|')}" data-i="0" alt="" onerror="window.__liveFallback(this)"></span>`;
 }
 
 window.__badgeFallback = img => {
@@ -193,30 +194,11 @@ export function mountChrome(active) {
 function renderAccount() {
   const body = $('#accountBody'), user = Auth.user();
   if (Auth.loggedIn && user) return renderUserView(body, user);
-  let mode = 'login';
   body.innerHTML = `
-    <div id="authTabs"></div>
-    <p class="form-error" id="authError" role="alert" hidden></p>
-    <label class="field" id="nameField" hidden>Name<input id="authName" autocomplete="name"></label>
-    <label class="field">Email<input id="authEmail" type="email" autocomplete="email"></label>
-    <label class="field">Password<input id="authPassword" type="password" autocomplete="current-password"></label>
-    <button class="btn btn-primary btn-block" id="authSubmit">Sign in</button>`;
-  $('#authTabs').append(Tabs({
-    label: 'Sign in or sign up', active: 'login',
-    items: [{ id: 'login', label: 'Sign in' }, { id: 'signup', label: 'Sign up' }],
-    onChange: id => { mode = id; $('#nameField').hidden = id === 'login'; $('#authSubmit').textContent = id === 'login' ? 'Sign in' : 'Create account'; }
-  }).el);
-  const submit = async () => {
-    const err = $('#authError'); err.hidden = true;
-    try {
-      const payload = { email: $('#authEmail').value, password: $('#authPassword').value };
-      if (mode === 'signup') payload.name = $('#authName').value;
-      const data = await api(`/api/auth/${mode}`, { method: 'POST', body: JSON.stringify(payload) });
-      Auth.set(data.token, data.user); renderAccount(); toast(`Welcome, ${data.user.name}`);
-    } catch (e) { err.textContent = e.message; err.hidden = false; }
-  };
-  $('#authSubmit').onclick = submit;
-  body.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+    <p class="muted">Sign in with your City Metro account to save journeys and use them on any device.</p>
+    <button class="btn btn-primary btn-block" id="ssoBtn">Sign in with City Metro</button>
+    <p class="muted" style="text-align:center;margin-top:.8rem">You'll sign in at ${esc(new URL(AUTH_ORIGIN).host)} and come straight back.</p>`;
+  $('#ssoBtn').onclick = () => Auth.login();
 }
 
 async function renderUserView(body, user) {
@@ -224,6 +206,7 @@ async function renderUserView(body, user) {
     <p class="user-name">${esc(user.name)}</p><p class="muted">${esc(user.email)}</p>
     <h3 class="eyebrow">Saved journeys</h3><div id="savedList"><p class="muted">Loading…</p></div>
     <a class="btn btn-primary btn-block" href="planner.html">Plan a new trip</a>
+    <a class="btn btn-ghost btn-block" href="${esc(AUTH_ORIGIN)}/if/user/" target="_blank" rel="noopener">Manage account</a>
     <button class="btn btn-ghost btn-block" id="signOut">Sign out</button>`;
   $('#signOut').onclick = () => { Auth.clear(); renderAccount(); };
   const box = $('#savedList');
