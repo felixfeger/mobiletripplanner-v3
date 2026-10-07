@@ -56,7 +56,7 @@ export function vehicleSheet({ net, v, stationId = null, mode = 'browse', arrive
     <p class="veh-dir">${ICON.arrow}<span>${esc(toward)}</span></p>
     ${main ? `<div class="veh-main">${main}</div>` : ''}
     <p class="veh-at">${atStop ? 'At stop' : 'Next stop'}: ${esc(nextName)}</p>
-    ${station ? `<p class="veh-sub">Counting toward ${esc(station.name)}</p>` : ''}
+    ${station ? `<p class="veh-sub"> Towards ${esc(station.name)}</p>` : ''}
     <div class="veh-chips">
       <div class="vchip"><span class="dots"><i></i><i></i><i></i><i></i><i></i><i></i></span><span>Crowding unknown</span></div>
       <div class="vchip"><span class="ok">${ICON.check}</span><span>${esc(status.charAt(0).toUpperCase() + status.slice(1))}</span></div></div>
