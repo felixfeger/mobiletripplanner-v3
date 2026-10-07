@@ -1,5 +1,5 @@
 // City Metro Transit - Shared JS
-const API = 'https://city-metro-bus-api.felixfeger46.workers.dev';
+const API = 'https://api.trip-planner.citymetro.xyz';
 
 // ── AUTH ──────────────────────────────────────────────────────
 const Auth = {
