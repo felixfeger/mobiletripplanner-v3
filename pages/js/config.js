@@ -1,5 +1,5 @@
 // The only place the API address lives. Same Worker URL as the old site.
-export const API_BASE = 'https://city-metro-bus-api.felixfeger46.workers.dev';
+export const API_BASE = 'https://api.trip-planner.citymetro.xyz';
 
 // Live-vehicle icons (white, transparent PNGs — drawn on a black chip). Every live vehicle uses these.
 // Rail uses train.png (trains.png is still tried as a fallback); buses use bus.png.
