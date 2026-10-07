@@ -31,6 +31,7 @@ export const ICON = {
   chevron: svg('<path d="M9 5l7 7-7 7"/>'),
   search: svg('<circle cx="11" cy="11" r="7.5"/><path d="M21 21l-4.6-4.6"/>'),
   station: svg('<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M8 21l2-4M16 21l-2-4"/><circle cx="9" cy="14" r=".6"/><circle cx="15" cy="14" r=".6"/>'),
+  access: svg('<circle cx="11" cy="4" r="1.8"/><path d="M11 7.8v6.4h5.4l2.6 5M11 10.8h5.2M7.6 13.4a5.2 5.2 0 1 0 6.9 6.6"/>'),
   stop: svg('<rect x="4" y="4" width="16" height="13" rx="3"/><path d="M4 11h16M7 17v3M17 17v3"/>')
 };
 
