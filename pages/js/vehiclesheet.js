@@ -1,18 +1,31 @@
 // Live vehicles: the list of every vehicle on a line, and the sheet for ONE vehicle.
 // The sheet (arrive-at, "N stops away", next stop…) only appears after you tap an individual vehicle —
 // from the list, from the map, or from the trip guide.
-import { esc, lineBadge, safeColor, ICON, liveIcon, fmtClock } from './ui.js';
+import { esc, lineBadge, safeColor, ICON, liveIcon } from './ui.js';
 import { trackVehicle, etaMinutes, dirKeyOf, terminals } from './arrivals.js';
 
 export const headsignOf = (v, first, last) =>
   v.headsign || (dirKeyOf(v, { first }) === 'inbound' ? first && first.name : last && last.name) || '';
 
-// "Updated N seconds ago" is cosmetic: a random 30–90 s, re-rolled every ~15 s per vehicle (not the real timestamp).
-const ages = new Map();
-export function updatedSecondsAgo(id, now = Date.now()) {
-  const e = ages.get(id);
-  if (!e || now - e.at > 15000) ages.set(id, { at: now, s: 30 + Math.floor(Math.random() * 61) });
-  return ages.get(id).s;
+// "Updated N seconds ago" is cosmetic (never the real time): it counts up from 0 each second, resets to 0 at a
+// random point between 30 and 90, picks a new random point, and keeps going forever. One counter per vehicle,
+// so it carries on across the 15-second refreshes and when you reopen the sheet.
+const counters = new Map();
+const randomTarget = () => 30 + Math.floor(Math.random() * 61);
+const agoText = n => `${n} second${n === 1 ? '' : 's'} ago`;
+let ticker = null;
+
+export function updatedSeconds(id) {
+  const key = String(id);
+  if (!counters.has(key)) counters.set(key, { n: 0, target: randomTarget() });
+  if (!ticker) ticker = setInterval(tickUpdated, 1000);       // starts with the first sheet that is shown
+  return counters.get(key).n;
+}
+export function tickUpdated() {
+  for (const c of counters.values()) {
+    if (c.n >= c.target) { c.n = 0; c.target = randomTarget(); } else c.n++;
+  }
+  document.querySelectorAll('[data-upd]').forEach(el => { const c = counters.get(el.dataset.upd); if (c) el.textContent = agoText(c.n); });
 }
 
 // ALL live vehicles on a line, one tappable row each. `stationId` = the stop the minutes are measured to.
@@ -30,8 +43,9 @@ export function vehicleRows(net, lineId, stationId = null) {
   }).join('');
 }
 
-// mode: 'browse' (map page / line menu) · 'preview' (trip guide, before GO) · 'riding' (after GO, adds ARRIVE AT)
-export function vehicleSheet({ net, v, stationId = null, mode = 'browse', arriveAt = null }) {
+// The sheet for ONE vehicle (shared by the map page's line menu and the trip guide).
+// The "ARRIVE AT" chip is not part of it: the trip guide floats it over the map.
+export function vehicleSheet({ net, v, stationId = null, mode = 'browse' }) {
   const line = net.linesById[v.line_id] || { id: v.line_id, name: v.line_id, type: 'bus', color: '#111827' };
   const color = safeColor(line.color, '#111827'), kind = line.type === 'rail' ? 'train' : 'bus';
   const { first, last } = terminals(v.line_id, net);
@@ -42,8 +56,7 @@ export function vehicleSheet({ net, v, stationId = null, mode = 'browse', arrive
   const nextName = (next && next.name) || v.next_station_name || '';
   const toNext = v.next_station_id != null ? etaMinutes(v, v.next_station_id, net) : null;
   const atStop = v.next_x != null && Math.hypot(v.next_x - v.x, v.next_y - v.y) <= 6;
-  const big = line.image_url || line.type === 'rail' ? lineBadge(line, 'xxl') : `<span class="veh-num">${esc(line.id)}</span>`;
-  const status = String(v.status || 'in_service').replace(/_/g, ' ');
+  const big = line.image_url ? lineBadge(line, 'xxl') : line.type === 'rail' ? lineBadge(line, 'xxl') : `<span class="veh-num">${esc(line.id)}</span>`;
   const name = v.vehicle_label ? `${kind === 'bus' ? 'Bus' : 'Train'} ${v.vehicle_label}` : `Vehicle ${v.id}`;
 
   const main = tr
@@ -51,16 +64,15 @@ export function vehicleSheet({ net, v, stationId = null, mode = 'browse', arrive
     : toNext != null ? `<strong>Next stop</strong><span class="veh-min">${liveIcon(line.type)}<b>${toNext}</b><small>min</small></span>` : '';
 
   return `<div class="veh" style="--c:${color}">
-    ${mode === 'riding' && arriveAt ? `<div class="veh-arrive"><small>ARRIVE AT</small><b>${fmtClock(arriveAt)}${liveIcon(line.type)}</b></div>` : ''}
-    <div class="veh-top">${big}<span class="veh-op"><img src="img/logo.png" alt="">City Metro</span></div>
+    <div class="veh-top">${big}</div>
     <p class="veh-dir">${ICON.arrow}<span>${esc(toward)}</span></p>
     ${main ? `<div class="veh-main">${main}</div>` : ''}
     <p class="veh-at">${atStop ? 'At stop' : 'Next stop'}: ${esc(nextName)}</p>
-    ${station ? `<p class="veh-sub"> Towards ${esc(station.name)}</p>` : ''}
+    ${station ? `<p class="veh-sub">Counting toward ${esc(station.name)}</p>` : ''}
     <div class="veh-chips">
       <div class="vchip"><span class="dots"><i></i><i></i><i></i><i></i><i></i><i></i></span><span>Crowding unknown</span></div>
-      <div class="vchip"><span class="ok">${ICON.check}</span><span>${esc(status.charAt(0).toUpperCase() + status.slice(1))}</span></div></div>
-    <p class="veh-upd">${esc(name)}. Updated ${updatedSecondsAgo(v.id)} seconds ago by City Metro.</p></div>`;
+      <div class="vchip access"><span class="ok">${ICON.access}</span><span>Accessible</span></div></div>
+    <p class="veh-upd">${esc(name)}. Updated <span data-upd="${esc(String(v.id))}">${agoText(updatedSeconds(v.id))}</span> by City Metro.</p></div>`;
 }
 
 // What the map highlights for the selected vehicle.
